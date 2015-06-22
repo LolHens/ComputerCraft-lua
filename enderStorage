@@ -1,0 +1,192 @@
+-- enderStorage
+-- by LolHens
+
+prevOffset = 0
+chunkSize = 24
+lock = false
+
+waitForLock = false
+invCtrl = "west"
+inv = {
+ --dir, remote, size, outSlot, connect
+ {"up", 1, 108, 0, true},
+ {"up", 2, 108, 0, true},
+ {"down", 1, 108, 0, false},
+ {"down", 2, 2, 0, false},
+ {"south", 1, 7, 8, false},
+}
+remote = {
+ {"main", 0, "back"},
+ {"north", 1, "jds_tileentityweaponcase_0"}
+}
+
+maxChunkSize = 0
+for _, v in pairs(inv) do
+ if v[5] then
+  maxChunkSize = maxChunkSize + v[3]
+ else
+  maxChunkSize = math.ceil((maxChunkSize + v[3])/chunkSize)*chunkSize
+ end
+end
+for _, v in pairs(remote) do
+ v[0] = peripheral.wrap(v[3])
+end
+
+function save()
+ local file = io.open("enderStorageOffset", "w")
+ file:write(prevOffset.."\n")
+ file:flush()
+ file:close()
+end
+
+function load()
+ if not fs.exists("enderStorageOffset") then return end
+ local file = io.open("enderStorageOffset", "r")
+ prevOffset = tonumber(file:read("*l"))
+ file:close()
+end
+
+function toInvSlot(slot, output)
+ local oldSlot = slot
+ local invSize = 0
+ local i = 1
+ while inv[i] ~= nil and slot > inv[i][3] do
+  if inv[i][5] then
+   invSize = invSize + inv[i][3]
+  else
+   invSize = math.ceil((invSize + inv[i][3])/chunkSize)*chunkSize
+  end
+  slot = oldSlot - invSize
+  i = i + 1
+ end
+ if slot < 1 then
+  i = i - 1
+  if inv[i]~=nil then
+   if inv[i][4] > 0 then
+    slot = inv[i][4]
+   else
+    return nil
+   end
+  end
+ end
+ if inv[i] == nil then
+  i = i - 1
+  slot = inv[i][3]
+ end
+ if output and inv[i][4] > 0 then slot = inv[i][4] end
+ return inv[i], slot
+end
+
+function push(from, fromSlot, to, toSlot)
+ if from==nil then from=remote[1] end
+ if to~=nil then
+  if to[2]>1 then
+   push(from, fromSlot, remote[to[2]], 1)
+   remote[to[2]][0].pushItemIntoSlot(to[1], 1, 64, toSlot)
+  else
+   from[0].pushItemIntoSlot(to[1], fromSlot, 64, toSlot)
+  end
+ end
+end
+
+function pull(to, toSlot, from, fromSlot)
+ if to==nil then to=remote[1] end
+ if from~=nil then
+  if from[2]>1 then
+   remote[from[2]][0].pullItemIntoSlot(from[1], fromSlot, 64, 1)
+   pull(to, toSlot, remote[from[2]], 1)
+  else
+   to[0].pullItemIntoSlot(from[1], fromSlot, 64, toSlot)
+  end
+ end
+end
+
+function reset(offset)
+ for i = 1, 27-3 do
+  local inp = i + math.floor((i+math.floor(i/9))/9)
+  local out = i + offset
+  local dir, slot = toInvSlot(out, true)
+  if dir == nil then
+   remote[1][0].pushItemIntoSlot(invCtrl, inp, 64, i+3)
+  else
+   push(nil, inp, dir, slot)
+  end
+ end
+end
+
+function put(offset)
+ disButtons()
+ reset(prevOffset)
+ prevOffset = offset
+ for i = 1, 27-3 do
+  local inp = i + offset
+  local out = i + math.floor((i+math.floor(i/9))/9)
+  local dir, slot = toInvSlot(inp, false)
+  if dir == nil then
+   remote[1][0].pullItemIntoSlot(invCtrl, i+3, 64, out)
+  else
+   pull(nil, out, dir, slot)
+  end
+ end
+ enButtons()
+end
+
+function disButtons()
+ remote[1][0].pushItemIntoSlot(invCtrl, 9*1, 64, 1)
+ remote[1][0].pushItemIntoSlot(invCtrl, 9*2, 64, 2)
+ remote[1][0].pushItemIntoSlot(invCtrl, 9*3, 64, 3)
+end
+
+function enButtons()
+ remote[1][0].pullItemIntoSlot(invCtrl, 1, 64, 9*1)
+ remote[1][0].pullItemIntoSlot(invCtrl, 2, 64, 9*2)
+ remote[1][0].pullItemIntoSlot(invCtrl, 3, 64, 9*3)
+end
+
+function isButtonPressed(num)
+ local stack = remote[1][0].getStackInSlot(9*num)
+ return stack == nil or stack["name"] ~= "ic2.ejectorUpgrade"
+end
+
+function check()
+ if waitForLock and lock then
+  if not isButtonPressed(1)
+  and not isButtonPressed(2)
+  and not isButtonPressed(3) then
+   lock = false
+  end
+ else
+  if isButtonPressed(1) then
+   if prevOffset > 0 then
+    put(prevOffset - chunkSize)
+   else
+    put(math.floor((maxChunkSize-1)/chunkSize) * chunkSize)
+   end
+   lock = true
+   save()
+  elseif isButtonPressed(3) then
+   if prevOffset + chunkSize < maxChunkSize then
+    put(prevOffset + chunkSize)
+   else
+    put(0)
+   end
+   lock = true
+   save()
+  elseif isButtonPressed(2) then
+   put(prevOffset)
+   lock = true
+   save()
+  end
+ end
+end
+
+function main()
+ load()
+ put(prevOffset)
+ while true do
+  check()
+  sleep(0.2)
+ end
+end
+
+main()

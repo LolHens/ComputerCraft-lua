@@ -1,0 +1,155 @@
+-- enderStorage
+-- by LolHens
+
+prevOffset = 0
+chunkSize = 24
+lock = false
+c = peripheral.wrap("back")
+
+inv = {
+ --dir, size, outSlot, connect
+ {"up", 108, 0, true},
+ {"down", 108, 0, false},
+ {"south", 7, 8, false}
+}
+
+maxChunkSize = 0
+for _, v in pairs(inv) do
+ if v[4] then
+  maxChunkSize = maxChunkSize + v[2]
+ else
+  maxChunkSize = maxChunkSize + math.ceil(v[2]/chunkSize)*chunkSize
+ end
+end
+
+function save()
+ local file = io.open("enderStorageOffset", "w")
+ file:write(prevOffset.."\n")
+ file:flush()
+ file:close()
+end
+
+function load()
+ if not fs.exists("enderStorageOffset") then return end
+ local file = io.open("enderStorageOffset", "r")
+ prevOffset = tonumber(file:read("*l"))
+ file:close()
+end
+
+function toInvSlot(slot, output)
+ local i = 1
+ while inv[i] ~= nil and slot > inv[i][2] do
+  if inv[i][4] then
+   slot = slot - inv[i][2]
+  else
+   slot = slot - math.ceil(inv[i][2]/chunkSize)*chunkSize
+  end
+  i = i + 1
+ end
+ if inv[i] == nil then
+  i = i - 1
+  slot = inv[i][2]
+ end
+ if slot < 1 then
+  if inv[i][3] > 0 then
+   slot = inv[i][3]
+  else
+   return nil
+  end
+ end
+ if output and inv[i][3] > 0 then slot = inv[i][3] end
+ return inv[i][1], slot
+end
+
+function reset(offset)
+ for i = 1, 27-3 do
+  local inp = i + math.floor((i+math.floor(i/9))/9)
+  local out = i + offset
+  if c.getStackInSlot(inp)~=nil then
+   local dir, slot = toInvSlot(out, true)
+   if dir == nil then
+    c.pushItemIntoSlot("west", inp, 64, i+3)
+   else
+    c.pushItemIntoSlot(dir, inp, 64, slot)
+   end
+  end
+ end
+end
+
+function put(offset)
+ disButtons()
+ reset(prevOffset)
+ prevOffset = offset
+ for i = 1, 27-3 do
+  local inp = i + offset
+  local out = i + math.floor((i+math.floor(i/9))/9)
+  local dir, slot = toInvSlot(inp, false)
+  if dir == nil then
+   c.pullItemIntoSlot("west", i+3, 64, out)
+  else
+   print(dir.." "..slot)
+   c.pullItemIntoSlot(dir, slot, 64, out)
+  end
+ end
+ enButtons()
+end
+
+function disButtons()
+ c.pushItemIntoSlot("west", 9*1, 64, 1)
+ c.pushItemIntoSlot("west", 9*2, 64, 2)
+ c.pushItemIntoSlot("west", 9*3, 64, 3)
+end
+
+function enButtons()
+ c.pullItemIntoSlot("west", 1, 64, 9*1)
+ c.pullItemIntoSlot("west", 2, 64, 9*2)
+ c.pullItemIntoSlot("west", 3, 64, 9*3)
+end
+
+function isButtonPressed(num)
+ local stack = c.getStackInSlot(9*num)
+ return stack == nil or stack["name"] ~= "ic2.ejectorUpgrade"
+end
+
+function check()
+ if lock then
+  if not isButtonPressed(1)
+  and not isButtonPressed(2)
+  and not isButtonPressed(3) then
+   lock = false
+  end
+ else
+  if isButtonPressed(1) then
+   if prevOffset > 0 then
+    put(prevOffset - chunkSize)
+   else
+    put(math.floor(maxChunkSize/chunkSize) * chunkSize)
+   end
+   lock = true
+   save()
+  elseif isButtonPressed(3) then
+   if prevOffset + chunkSize < maxChunkSize then
+    put(prevOffset + chunkSize)
+   else
+    put(0)
+   end
+   lock = true
+   save()
+  elseif isButtonPressed(2) then
+   put(prevOffset)
+   lock = true
+   save()
+  end
+ end
+end
+
+function main()
+ load()
+ put(prevOffset)
+ while true do
+  check()
+  sleep(0.2)
+ end
+end
+
+main()
