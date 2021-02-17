@@ -4,10 +4,175 @@
 tArgs = {...}
 
 -- global vars
-x, y, z = gps.locate()
 
 -- TODO: compute rotation
 r = 0
+
+local function direction(x, z)
+  if x == 0 and z < 0 then return 0 end
+  if x > 0 and z == 0 then return 1 end
+  if x == 0 and z > 0 then return 2 end
+  if x < 0 and z == 0 then return 3 end
+  return nil
+end
+
+local turtleRaw = {
+  go = {
+    forward = turtle.forward,
+    up = turtle.up,
+    down = turtle.down,
+    back = turtle.back,
+  },
+  turn = {
+    left = turtle.turnLeft,
+    right = turtle.turnRight,
+  },
+  dig = {
+    forward = turtle.dig,
+    up = turtle.digUp,
+    down = turtle.digDown,
+  },
+  place = {
+    forward = turtle.place,
+    up = turtle.placeUp,
+    down = turtle.placeDown,
+  },
+  detect = {
+    forward = turtle.detect,
+    up = turtle.detectUp,
+    down = turtle.detectDown,
+  },
+  compare = {
+    forward = turtle.compare,
+    up = turtle.compareUp,
+    down = turtle.compareDown,
+  },
+  attack = {
+    forward = turtle.attack,
+    up = turtle.attackUp,
+    down = turtle.attackDown,
+  },
+  suck = {
+    forward = turtle.suck,
+    up = turtle.suckUp,
+    down = turtle.suckDown,
+  },
+  equip = {
+    left = turtle.equipLeft,
+    right = turtle.equipRight,
+  },
+  inspect = {
+    forward = turtle.inspect,
+    up = turtle.inspectUp,
+    down = turtle.inspectDown,
+  },
+}
+
+local function refuel()
+  local limit = turtle.getFuelLimit()
+  local refuelThreshold = limit / 2
+  local refuelMax = limit - 100
+  
+  if turtle.getFuelLevel() < refuelThreshold then
+    local selected = getSelectedSlot()
+    for i = 1, 16 do
+      turtle.select(i)
+      if true then -- TODO: is in refuel whitelist
+        while turtle.getFuelLevel() < refuelMax and turtle.refuel(1) do end
+        if turtle.getFuelLevel() >= refuelMax then break end
+      end
+    end
+    turtle.select(selected)
+  end
+  
+  return turtle.getFuelLevel() > 0
+end
+
+local function turtleForceGo(dig, attack)
+  if dig == nil then dig = false end
+  if attack == nil then attack = true end
+  
+  local function forceGo(dir)
+    if not refuel() then return false end
+    
+    -- TODO: retry 3 times?
+    while not turtleRaw.go[dir]() do
+      if turtleRaw.detect[dir]() then
+        if not dig or not turtleRaw.dig[dir]() then
+          return false
+        end
+      elseif (not attack or not turtleRaw.attack[dir]()) then
+        return false
+      end
+      sleep(0.2)
+    end
+    
+    return true
+  end
+ 
+  return {
+    forward = function() return forceGo("forward") end,
+    up = function() return forceGo("up") end,
+    down = function() return forceGo("down") end,
+    back = function()
+      turtleRaw.turn.right()
+      turtleRaw.turn.right()
+      local result = forceGo("forward")
+      turtleRaw.turn.left()
+      turtleRaw.turn.left()
+      return result
+    end,
+  }
+end
+
+local function moveRaw(x, y, z)
+  print("test")
+end
+
+local function locate()
+  local x, y, z = gps.locate()
+  
+  local function directionByMove(go, d)
+    if d == nil then d = 0 end
+    
+    if not refuel() or turtle.getFuelLevel() < 2 then return nil end
+    
+    local rX, rY, rZ = x, y, z
+    
+    if go.forward() then
+      rX, rY, rZ = gps.locate()
+      go.back()
+    elseif go.back() then
+      rX, rY, rZ = gps.locate()
+      d = d + 2
+      go.forward()
+    end
+    
+    local value = direction(rX - x, rZ - z)
+    return value and (d + value) % 4
+  end
+  
+  local d = directionByMove(turtleRaw.go)
+  if d == nil then
+    turtleRaw.turn.right()
+    d = directionByMove(turtleRaw.go, 3)
+    turtleRaw.turn.left()
+  end
+  if d == nil then
+    local forceGo = turtleForceGo(true)
+    
+    d = directionByMove(forceGo)
+    if d == nil then
+      turtleRaw.turn.right()
+      d = directionByMove(forceGo, 3)
+      turtleRaw.turn.left()
+    end
+  end
+  
+  return x, y, z, d
+end
+
+-- TODO: suck
 
 local function getRotationFor(arg_x, arg_z, alternate)
  if alternate == nil then alternate = false end
@@ -25,99 +190,7 @@ local function getRotationFor(arg_x, arg_z, alternate)
  return 0
 end
 
-local function getRawAction(action, dir)
- if dir==nil then dir="" end
- if dir=="" then
-  if action=="inspect" then
-   return turtle.inspect, false
-  elseif action=="detect" then
-   return turtle.detect, false
-  elseif action=="compare" then
-   return turtle.compare, false
-  elseif action=="drop" then
-   return turtle.drop, false
-  elseif action=="suck" then
-   return turtle.suck, false
-  elseif action=="place" then
-   return turtle.place, false
-  elseif action=="dig" then
-   return turtle.dig, false
-  elseif action=="go" then
-   return turtle.forward, true
-  elseif action=="attack" then
-   return turtle.attack, false
-  end
- elseif dir=="up" then
-  if action=="inspect" then
-   return turtle.inspectUp, false
-  elseif action=="detect" then
-   return turtle.detectUp, false
-  elseif action=="compare" then
-   return turtle.compareUp, false
-  elseif action=="drop" then
-   return turtle.dropUp, false
-  elseif action=="suck" then
-   return turtle.suckUp, false
-  elseif action=="place" then
-   return turtle.placeUp, false
-  elseif action=="dig" then
-   return turtle.digUp, false
-  elseif action=="go" then
-   return turtle.up, true
-  elseif action=="attack" then
-   return turtle.attackUp, false
-  end
- elseif dir=="down" then
-  if action=="inspect" then
-   return turtle.inspectDown, false
-  elseif action=="detect" then
-   return turtle.detectDown, false
-  elseif action=="compare" then
-   return turtle.compareDown, false
-  elseif action=="drop" then
-   return turtle.dropDown, false
-  elseif action=="suck" then
-   return turtle.suckDown, false
-  elseif action=="place" then
-   return turtle.placeDown, false
-  elseif action=="dig" then
-   return turtle.digDown, false
-  elseif action=="go" then
-   return turtle.down, true
-  elseif action=="attack" then
-   return turtle.attackDown, false
-  end
- end
- return nil
-end
-
-local function forceAction(action, dir, dig, attack, wait)
- if dig == nil then dig = false end
- if attack == nil then attack = true end
- if wait == nil then wait = false end
- actionFunc, fuelNeeded = getRawAction(action, dir)
- if fuelNeeded and not hasFuel() then return false end
- while not actionFunc() do
-  if getRawAction("detect", dir)() then
-   if (not dig or not getRawAction("dig", dir)()) and not wait then
-    return false
-   end
-  else
-   if attack then
-    getRawAction("attack", dir)()
-   elseif not wait then
-    return false
-   end
-  end
-  sleep(0.2)
- end
- return true
-end
-
 -- globals
-function setRefuelHandler(handler)
- moveRefuelHandler = handler
-end
 
 function getRotationOffsetX(arg_r)
  if arg_r==nil then arg_r = r end
@@ -363,16 +436,6 @@ function turnLeft()
  end
 end
 
-function hasFuel()
- if turtle.getFuelLevel() <= 1 and moveRefuelHandler ~= nil then
-  moveRefuelHandler()
- end
- if turtle.getFuelLevel() > 1 then
-  return true
- end
- return false
-end
-
 function goStep(arg_x, arg_z, dig, attack, wait, alternate)
  if alternate == nil then alternate = false end
  if arg_x == 0 or arg_z == 0 then alternate = false end
@@ -484,16 +547,6 @@ function init()
   end
  end
  slot_items = slot_ignore_max + 1
-end
-
-function refuel()
- repeat
-  for i = slot_items, 16, 1 do
-   turtle.select(i)
-   turtle.refuel(64)
-  end
-  sleep(0.2)
- until turtle.getFuelLevel() > 1
 end
 
 function dumpItems()
