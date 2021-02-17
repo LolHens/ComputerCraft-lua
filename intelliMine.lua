@@ -89,20 +89,31 @@ local function turtleForceGo(dig, attack)
   local function forceGo(dir)
     if not refuel(1) then return false end
     
-    -- TODO: retry 3 times?
-    local retries = 3
-    while not turtleRaw.go[dir]() do
+    local function tryRecover()
       if turtleRaw.detect[dir]() then
-        if not dig or not turtleRaw.dig[dir]() then
-          return false
-        end
-      elseif (not attack or not turtleRaw.attack[dir]()) then
-        return false
+        if dig and turtleRaw.dig[dir]() then return true end
+      elseif attack and turtleRaw.attack[dir]() then
+        return true
       end
+      
+      return false
+    end
+    
+    local failed = false
+    for i = 1, 1000 do
+      if turtleRaw.go[dir]() then return true end
+      
+      if not tryRecover() then
+        if failed then return false end
+        failed = true
+      else
+        failed = false
+      end
+      
       sleep(0.2)
     end
     
-    return true
+    return false
   end
  
   return {
@@ -110,6 +121,10 @@ local function turtleForceGo(dig, attack)
     up = function() return forceGo("up") end,
     down = function() return forceGo("down") end,
     back = function()
+      if not refuel(1) then return false end
+      
+      if turtleRaw.go.back() then return true end
+      
       turtleRaw.turn.right()
       turtleRaw.turn.right()
       local result = forceGo("forward")
