@@ -8,14 +8,6 @@ tArgs = {...}
 -- TODO: compute rotation
 r = 0
 
-local function direction(x, z)
-  if x == 0 and z < 0 then return 0 end
-  if x > 0 and z == 0 then return 1 end
-  if x == 0 and z > 0 then return 2 end
-  if x < 0 and z == 0 then return 3 end
-  return nil
-end
-
 local turtleRaw = {
   go = {
     forward = turtle.forward,
@@ -68,13 +60,15 @@ local turtleRaw = {
   },
 }
 
-local function refuel()
+local function refuel(refuelMin)
   local limit = turtle.getFuelLimit()
-  local refuelThreshold = limit / 2
   local refuelMax = limit - 100
+  local refuelThreshold = refuelMin
+  if refuelThreshold == nil then refuelThreshold = limit / 2 end
+  if refuelMin == nil then refuelMin = 1 end
   
   if turtle.getFuelLevel() < refuelThreshold then
-    local selected = getSelectedSlot()
+    local selected = turtle.getSelectedSlot()
     for i = 1, 16 do
       turtle.select(i)
       if true then -- TODO: is in refuel whitelist
@@ -85,7 +79,7 @@ local function refuel()
     turtle.select(selected)
   end
   
-  return turtle.getFuelLevel() > 0
+  return turtle.getFuelLevel() >= refuelMin
 end
 
 local function turtleForceGo(dig, attack)
@@ -93,9 +87,10 @@ local function turtleForceGo(dig, attack)
   if attack == nil then attack = true end
   
   local function forceGo(dir)
-    if not refuel() then return false end
+    if not refuel(1) then return false end
     
     -- TODO: retry 3 times?
+    local retries = 3
     while not turtleRaw.go[dir]() do
       if turtleRaw.detect[dir]() then
         if not dig or not turtleRaw.dig[dir]() then
@@ -125,31 +120,61 @@ local function turtleForceGo(dig, attack)
   }
 end
 
+local function Vec(x, y, z)
+  return {
+    x = x,
+    y = y,
+    z = z,
+    copy = function(self)
+      return Vec(self.x, self.y, self.z)
+    end,
+    isNull = function(self)
+      return self.x == 0 and self.y == 0 and self.z == 0
+    end,
+    offset = function(self, other)
+      return Vec(self.x + other.x, self.y + other.y, self.z + other.z)
+    end,
+    to = function(self, other)
+      return Vec(other.x - self.x, other.y - self.y, other.z - self.z)
+    end,
+    xzDirection = function(self)
+      if self.x == 0 and self.z < 0 then return 0 end
+      if self.x > 0 and self.z == 0 then return 1 end
+      if self.x == 0 and self.z > 0 then return 2 end
+      if self.x < 0 and self.z == 0 then return 3 end
+      return nil
+    end,
+    string = function(self)
+      return "{x="..self.x..",y="..self.y..",z="..self.z.."}"
+    end,
+  }
+end
+
 local function moveRaw(x, y, z)
   print("test")
 end
 
 local function locate()
-  local x, y, z = gps.locate()
+  local position = Vec(gps.locate())
   
-  local function directionByMove(go, d)
-    if d == nil then d = 0 end
+  local function directionByMove(go, dOffset)
+    if dOffset == nil then dOffset = 0 end
     
-    if not refuel() or turtle.getFuelLevel() < 2 then return nil end
+    if not refuel(2) then return nil end
     
-    local rX, rY, rZ = x, y, z
+    local offsetPosition = position:copy()
     
     if go.forward() then
-      rX, rY, rZ = gps.locate()
+      offsetPosition = Vec(gps.locate())
       go.back()
     elseif go.back() then
-      rX, rY, rZ = gps.locate()
-      d = d + 2
+      offsetPosition = Vec(gps.locate())
+      dOffset = dOffset + 2
       go.forward()
     end
     
-    local value = direction(rX - x, rZ - z)
-    return value and (d + value) % 4
+    local d = position:to(offsetPosition):xzDirection()
+    return d and (d + dOffset) % 4
   end
   
   local d = directionByMove(turtleRaw.go)
@@ -169,26 +194,10 @@ local function locate()
     end
   end
   
-  return x, y, z, d
+  return position, d
 end
 
 -- TODO: suck
-
-local function getRotationFor(arg_x, arg_z, alternate)
- if alternate == nil then alternate = false end
- if (not alternate and math.abs(arg_x) > math.abs(arg_z)) or (alternate and math.abs(arg_x) <= math.abs(arg_z)) then
-  arg_x = arg_x / math.abs(arg_x)
-  arg_z = 0
- else
-  arg_z = arg_z / math.abs(arg_z)
-  arg_x = 0
- end
- if arg_x==0 and arg_z>0 then return 0 end
- if arg_x<0 and arg_z==0 then return 1 end
- if arg_x==0 and arg_z<0 then return 2 end
- if arg_x>0 and arg_z==0 then return 3 end
- return 0
-end
 
 -- globals
 
@@ -250,26 +259,6 @@ function addRotation(arg_r)
  if r<0 then r = r + 4 end
  if r>3 then r = r - 4 end
  saveCoords()
-end
- 
-function getCoords()
- return x, y, z, r
-end
-
-function getX()
- return x
-end
-
-function getY()
- return y
-end
-
-function getZ()
- return z
-end
- 
-function getRotation()
- return r
 end
 
 function isAt(arg_x, arg_y, arg_z)
