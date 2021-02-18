@@ -55,18 +55,30 @@ local turtleRaw = {
   },
 }
 
+local function isInWhitelist(detail, whitelist)
+  if not detail or not whitelist then return nil end
+  
+  for _, entry in ipairs(whitelist) do
+    if detail.name == entry then return true end
+    for tag, _ in pairs(detail.tags) do
+      if tag == entry then return true end
+    end
+  end
+  return false
+end
+
 local function refuel(refuelMin)
   local limit = turtle.getFuelLimit()
   local refuelMax = limit - 100
   local refuelThreshold = refuelMin
-  if refuelThreshold == nil then refuelThreshold = limit / 2 end
-  if refuelMin == nil then refuelMin = 1 end
+  if not refuelThreshold then refuelThreshold = limit / 2 end
+  if not refuelMin then refuelMin = 1 end
   
   if turtle.getFuelLevel() < refuelThreshold then
     local selected = turtle.getSelectedSlot()
     for i = 1, 16 do
-      turtle.select(i)
-      if true then -- TODO: is in refuel whitelist
+      if isInWhitelist(turtle.getItemDetail(i, true), {"minecraft:coals"}) then
+        turtle.select(i)
         while turtle.getFuelLevel() < refuelMax and turtle.refuel(1) do end
         if turtle.getFuelLevel() >= refuelMax then break end
       end
@@ -119,7 +131,7 @@ local function turtleForceGo(dig, attack)
     turtleRaw.turn.right()
     turtleRaw.turn.right()
     local result = forceGo("forward")
-    if (keepRotation) then
+    if keepRotation then
       turtleRaw.turn.left()
       turtleRaw.turn.left()
     end
@@ -136,23 +148,23 @@ local function turtleForceGo(dig, attack)
 end
 
 local function rotationOffsetBy(rotation, other)
-  if rotation == nil or other == nil then return nil end
+  if not rotation or not other then return nil end
   
   return (rotation + other + 4) % 4
 end
 
 local function rotationOffsetTo(rotation, other)
-  if rotation == nil or other == nil then return nil end
+  if not rotation or not other then return nil end
   
   return (other - rotation + 4) % 4
 end
 
 local function Vec(x, y, z)
-  if x == nil and y == nil and z == nil then
+  if not x and not y and not z then
     x, y, z = 0, 0, 0
-  elseif y == nil and z == nil then
+  elseif not y and not z then
     y, z = x, x
-  elseif z == nil then
+  elseif not z then
     return nil
   end
   
@@ -176,17 +188,17 @@ local function Vec(x, y, z)
       return (not self.x or self.x == 0) and (not self.y or self.y == 0) and (not self.z or self.z == 0)
     end,
     isAt = function(self, other)
-      if other == nil then return nil end
+      if not other then return nil end
       
       return (not self.x or not other.x or self.x == other.x) and (not self.y or not other.y or self.y == other.y) and (not self.z or not other.z or self.z == other.z)
     end,
     offsetBy = function(self, other)
-      if other == nil then return nil end
+      if not other then return nil end
       
       return Vec(self.x and other.x and (self.x + other.x), self.y and other.y and (self.y + other.y), self.z and other.z and (self.z + other.z))
     end,
     offsetTo = function(self, other)
-      if other == nil then return nil end
+      if not other then return nil end
       
       return Vec(self.x and other.x and (other.x - self.x), self.y and other.y and (other.y - self.y), self.z and other.z and (other.z - self.z))
     end,
@@ -234,7 +246,7 @@ local function locate()
   local position = Vec(gps.locate())
   
   local function rotationByMove(go, rotationOffset)
-    if rotationOffset == nil then rotationOffset = 0 end
+    if not rotationOffset then rotationOffset = 0 end
     
     if not refuel(2) then return nil end
     
@@ -253,16 +265,16 @@ local function locate()
   end
   
   local rotation = rotationByMove(turtleRaw.go)
-  if rotation == nil then
+  if not rotation then
     turtleRaw.turn.right()
     rotation = rotationByMove(turtleRaw.go, 3)
     turtleRaw.turn.left()
   end
-  if rotation == nil then
+  if not rotation then
     local forceGo = turtleForceGo(true)
     
     rotation = rotationByMove(forceGo)
-    if rotation == nil then
+    if not rotation then
       turtleRaw.turn.right()
       rotation = rotationByMove(forceGo, 3)
       turtleRaw.turn.left()
@@ -365,11 +377,11 @@ local function moveStepBy(go, vector)
   local step = vector:step()
   local rotationOffset = rotationOffsetTo(step:xzRotation(), globalRotation)
   
-  if (step:isNull()) then
+  if step:isNull() then
     return true
   elseif rotationOffset == 2 then
     return (go.backAnyRotation or go.back)()
-  elseif rotationOffset ~= nil then
+  elseif rotationOffset then
     rotateBy(rotationOffset)
     return go.forward()
   elseif step.y > 0 then
