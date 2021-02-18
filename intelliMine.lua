@@ -3,11 +3,6 @@
 
 tArgs = {...}
 
--- global vars
-
--- TODO: compute rotation
-r = 0
-
 local turtleRaw = {
   go = {
     forward = turtle.forward,
@@ -86,13 +81,13 @@ local function turtleForceGo(dig, attack)
   if dig == nil then dig = false end
   if attack == nil then attack = true end
   
-  local function forceGo(dir)
+  local function forceGo(direction)
     if not refuel(1) then return false end
     
     local function tryRecover()
-      if turtleRaw.detect[dir]() then
-        if dig and turtleRaw.dig[dir]() then return true end
-      elseif attack and turtleRaw.attack[dir]() then
+      if turtleRaw.detect[direction]() then
+        if dig and turtleRaw.dig[direction]() then return true end
+      elseif attack and turtleRaw.attack[direction]() then
         return true
       end
       
@@ -101,7 +96,7 @@ local function turtleForceGo(dig, attack)
     
     local failed = false
     for i = 1, 1000 do
-      if turtleRaw.go[dir]() then return true end
+      if turtleRaw.go[direction]() then return true end
       
       if not tryRecover() then
         if failed then return false end
@@ -136,6 +131,14 @@ local function turtleForceGo(dig, attack)
 end
 
 local function Vec(x, y, z)
+  if x == nil and y == nil and z == nil then
+    x, y, z = 0, 0, 0
+  elseif y == nil and z == nil then
+    y, z = x, x
+  elseif z == nil then
+    return nil
+  end
+  
   return {
     x = x,
     y = y,
@@ -152,11 +155,19 @@ local function Vec(x, y, z)
     to = function(self, other)
       return Vec(other.x - self.x, other.y - self.y, other.z - self.z)
     end,
-    xzDirection = function(self)
+    xzRotation = function(self)
       if self.x == 0 and self.z < 0 then return 0 end
       if self.x > 0 and self.z == 0 then return 1 end
       if self.x == 0 and self.z > 0 then return 2 end
       if self.x < 0 and self.z == 0 then return 3 end
+      return nil
+    end,
+    offsetByRotation = function(self, rotation)
+      rotation = rotation % 4
+      if rotation == 0 then return Vec(self.x, self.y, self.z - 1) end
+      if rotation == 1 then return Vec(self.x + 1, self.y, self.z) end
+      if rotation == 2 then return Vec(self.x, self.y, self.z + 1) end
+      if rotation == 3 then return Vec(self.x - 1, self.y, self.z) end
       return nil
     end,
     string = function(self)
@@ -172,8 +183,8 @@ end
 local function locate()
   local position = Vec(gps.locate())
   
-  local function directionByMove(go, dOffset)
-    if dOffset == nil then dOffset = 0 end
+  local function rotationByMove(go, rotationOffset)
+    if rotationOffset == nil then rotationOffset = 0 end
     
     if not refuel(2) then return nil end
     
@@ -184,227 +195,116 @@ local function locate()
       go.back()
     elseif go.back() then
       offsetPosition = Vec(gps.locate())
-      dOffset = dOffset + 2
+      rotationOffset = rotationOffset + 2
       go.forward()
     end
     
-    local d = position:to(offsetPosition):xzDirection()
-    return d and (d + dOffset) % 4
+    local rotation = position:to(offsetPosition):xzRotation()
+    return rotation and (rotation + rotationOffset) % 4
   end
   
-  local d = directionByMove(turtleRaw.go)
-  if d == nil then
+  local rotation = rotationByMove(turtleRaw.go)
+  if rotation == nil then
     turtleRaw.turn.right()
-    d = directionByMove(turtleRaw.go, 3)
+    rotation = rotationByMove(turtleRaw.go, 3)
     turtleRaw.turn.left()
   end
-  if d == nil then
+  if rotation == nil then
     local forceGo = turtleForceGo(true)
     
-    d = directionByMove(forceGo)
-    if d == nil then
+    rotation = rotationByMove(forceGo)
+    if rotation == nil then
       turtleRaw.turn.right()
-      d = directionByMove(forceGo, 3)
+      rotation = rotationByMove(forceGo, 3)
       turtleRaw.turn.left()
     end
   end
   
-  return position, d
+  return position, rotation
 end
 
--- TODO: suck
+globalPosition, globalRotation = locate()
 
--- globals
+local updateGlobalPositionAndRotation = {
+  forward = function()
+    globalPosition = globalPosition:offsetByRotation(globalRotation)
+  end,
+  up = function()
+    globalPosition = globalPosition:offset(Vec(0, 1, 0))
+  end,
+  down = function()
+    globalPosition = globalPosition:offset(Vec(0, -1, 0))
+  end,
+  back = function()
+    globalPosition = globalPosition:offsetByRotation((globalRotation + 2) % 4)
+  end,
+  left = function()
+    globalRotation = (globalRotation + 3) % 4
+  end,
+  right = function()
+    globalRotation = (globalRotation + 1) % 4
+  end,
+}
 
-function getRotationOffsetX(arg_r)
- if arg_r==nil then arg_r = r end
- if arg_r==0 then
-  return 0
- elseif arg_r==1 then
-  return -1
- elseif arg_r==2 then
-  return 0
- elseif arg_r==3 then
-  return 1
- end
- return 0
+turtleRaw = (function()
+  local delegate = turtleRaw
+  
+  function goTracked(direction)
+    if delegate.go[direction]() then
+      updateGlobalPositionAndRotation[direction]()
+      return true
+    else
+      return false
+    end
+  end
+  
+  function turnTracked(direction)
+    if delegate.turn[direction]() then
+      updateGlobalPositionAndRotation[direction]()
+      return true
+    else
+      return false
+    end
+  end
+  
+  local result = {}
+  for k, v in pairs(delegate) do result[k] = v end
+  result.go = {
+    forward = function() return goTracked("forward") end,
+    up = function() return goTracked("up") end,
+    down = function() return goTracked("down") end,
+    back = function() return goTracked("back") end,
+  }
+  result.turn = {
+    left = function() return turnTracked("left") end,
+    right = function() return turnTracked("right") end,
+  }
+  
+  return result
+end)()
+
+local function rotateBy(rotation)
+  rotation = rotation % 4
+  if (rotation == 3) then return turtleRaw.turn.left() end
+  for i = 1, rotation do
+    if not turtleRaw.turn.right() then return false end
+  end
+  return true
 end
 
-function getRotationOffsetZ(arg_r)
- if arg_r==nil then arg_r = r end
- if arg_r==0 then
-  return 1
- elseif arg_r==1 then
-  return 0
- elseif arg_r==2 then
-  return -1
- elseif arg_r==3 then
-  return 0
- end
- return 0
+local function rotateTo(rotation)
+  return rotateBy(rotation - globalRotation)
 end
 
-function getRotationOffset(arg_r)
- return getRotationOffsetX(arg_r), getRotationOffsetZ(arg_r)
-end
+--local function moveBy(vector) end
 
-function setCoords(arg_x, arg_y, arg_z, arg_r)
- x = arg_x
- y = arg_y
- z = arg_z
- if arg_r ~= nil then r = arg_r end
- saveCoords()
-end
 
-function addCoords(arg_x, arg_y, arg_z, arg_r)
- x = x + arg_x
- y = y + arg_y
- z = z + arg_z
- if arg_r ~= nil then r = r + arg_r end
- saveCoords()
-end
- 
-function setRotation(arg_r)
- r = arg_r
- saveCoords()
-end
 
-function addRotation(arg_r)
- r = r + arg_r
- if r<0 then r = r + 4 end
- if r>3 then r = r - 4 end
- saveCoords()
-end
 
-function isAt(arg_x, arg_y, arg_z)
- if arg_z==nil and arg_y==nil then
-  return arg_x==y
- elseif arg_z==nil then
-  return arg_x==x and arg_y==z
- end
- return arg_x==x and arg_y==y and arg_z==z
-end
-   
 function go(dig, attack, wait)
  if forceAction("go", "", dig, attack, wait) then
   xAdd, zAdd = getRotationOffset(r)
   addCoords(xAdd, 0, zAdd)
-  return true
- end
- return false
-end
-
-function up(dig, attack, wait)
- if forceAction("go", "up", dig, attack, wait) then
-  addCoords(0, 1, 0)
-  return true
- end
- return false
-end
-
-function down(dig, attack, wait)
- if forceAction("go", "down", dig, attack, wait) then
-  addCoords(0, -1, 0)
-  return true
- end
- return false
-end
-
-function place(dig, attack, wait)
- return forceAction("place", "", dig, attack, wait)
-end
-
-function placeUp(dig, attack, wait)
- return forceAction("place", "up", dig, attack, wait)
-end
-
-function placeDown(dig, attack, wait)
- return forceAction("place", "down", dig, attack, wait)
-end
-
-function dig()
- turtle.dig()
-end
-
-function digUp()
- turtle.digUp()
-end
-
-function digDown()
- turtle.digDown()
-end
-
-function getAction(action, dir)
- if dir==nil then dir="" end
- if dir=="" then
-  if action=="inspect" then
-   return turtle.inspect, false
-  elseif action=="detect" then
-   return turtle.detect, false
-  elseif action=="compare" then
-   return turtle.compare, false
-  elseif action=="drop" then
-   return turtle.drop, false
-  elseif action=="suck" then
-   return turtle.suck, false
-  elseif action=="place" then
-   return place, false
-  elseif action=="dig" then
-   return dig, false
-  elseif action=="go" then
-   return go, true
-  elseif action=="attack" then
-   return turtle.attack, false
-  end
- elseif dir=="up" then
-  if action=="inspect" then
-   return turtle.inspectUp, false
-  elseif action=="detect" then
-   return turtle.detectUp, false
-  elseif action=="compare" then
-   return turtle.compareUp, false
-  elseif action=="drop" then
-   return turtle.dropUp, false
-  elseif action=="suck" then
-   return turtle.suckUp, false
-  elseif action=="place" then
-   return placeUp, false
-  elseif action=="dig" then
-   return digUp, false
-  elseif action=="go" then
-   return up, true
-  elseif action=="attack" then
-   return turtle.attackUp, false
-  end
- elseif dir=="down" then
-  if action=="inspect" then
-   return turtle.inspectDown, false
-  elseif action=="detect" then
-   return turtle.detectDown, false
-  elseif action=="compare" then
-   return turtle.compareDown, false
-  elseif action=="drop" then
-   return turtle.dropDown, false
-  elseif action=="suck" then
-   return turtle.suckDown, false
-  elseif action=="place" then
-   return placeDown, false
-  elseif action=="dig" then
-   return digDown, false
-  elseif action=="go" then
-   return down, true
-  elseif action=="attack" then
-   return turtle.attackDown, false
-  end
- end
- return nil
-end
-
-function back()
- if not hasFuel() then return false end
- if turtle.back() then
-  xAdd, zAdd = getRotationOffset(r)
-  addCoords(xAdd * -1, 0, zAdd * -1)
   return true
  end
  return false
