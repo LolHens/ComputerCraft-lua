@@ -55,12 +55,12 @@ local turtleRaw = {
   },
 }
 
-local function isInWhitelist(detail, whitelist)
-  if not detail or not whitelist then return nil end
+local function isItemIn(item, list)
+  if not item or not list then return nil end
   
-  for _, entry in ipairs(whitelist) do
-    if detail.name == entry then return true end
-    for tag, _ in pairs(detail.tags) do
+  for _, entry in ipairs(list) do
+    if item.name == entry then return true end
+    for tag, _ in pairs(item.tags) do
       if tag == entry then return true end
     end
   end
@@ -77,7 +77,7 @@ local function refuel(refuelMin)
   if turtle.getFuelLevel() < refuelThreshold then
     local selected = turtle.getSelectedSlot()
     for i = 1, 16 do
-      if isInWhitelist(turtle.getItemDetail(i, true), {"minecraft:coals"}) then
+      if isItemIn(turtle.getItemDetail(i, true), {"minecraft:coals"}) then
         turtle.select(i)
         while turtle.getFuelLevel() < refuelMax and turtle.refuel(1) do end
         if turtle.getFuelLevel() >= refuelMax then break end
@@ -217,15 +217,15 @@ local function Vec(x, y, z)
       if rotation == 3 then return Vec(self.x - 1, self.y, self.z) end
       return nil
     end,
-    step = function(self)
+    nextStep = function(self)
       if self.y and (not self.x or math.abs(self.x) <= math.abs(self.y)) and (not self.z or math.abs(self.z) <= math.abs(self.y)) then
-        return Vec(0, self.y / math.abs(self.y), 0)
+        return Vec(0, self.y >= 1 and 1 or self.y <= -1 and -1 or 0, 0)
       elseif self.x and (not self.z or math.abs(self.z) <= math.abs(self.x)) then
-        return Vec(self.x / math.abs(self.x), 0, 0)
+        return Vec(self.x >= 1 and 1 or self.x <= -1 and -1 or 0, 0, 0)
       elseif self.z then
-        return Vec(0, 0, self.z / math.abs(self.z))
+        return Vec(0, 0, self.z >= 1 and 1 or self.z <= -1 and -1 or 0)
       end
-      return nil
+      return Vec(0, 0, 0)
     end,
     string = function(self)
       return "{x="..self.x..",y="..self.y..",z="..self.z.."}"
@@ -330,18 +330,16 @@ turtleRaw = (function()
     if delegate.go[direction]() then
       updateGlobalPositionAndRotation[direction]()
       return true
-    else
-      return false
     end
+    return false
   end
   
   function turnTracked(direction)
     if delegate.turn[direction]() then
       updateGlobalPositionAndRotation[direction]()
       return true
-    else
-      return false
     end
+    return false
   end
   
   local result = {}
@@ -370,12 +368,12 @@ local function rotateBy(rotation)
 end
 
 local function rotateTo(rotation)
-  return rotateBy(rotationOffsetTo(rotation, globalRotation))
+  return rotateBy(rotationOffsetTo(globalRotation, rotation))
 end
 
 local function moveStepBy(go, vector)
-  local step = vector:step()
-  local rotationOffset = rotationOffsetTo(step:xzRotation(), globalRotation)
+  local step = vector:nextStep()
+  local rotationOffset = rotationOffsetTo(globalRotation, step:xzRotation())
   
   if step:isNull() then
     return true
@@ -391,57 +389,53 @@ local function moveStepBy(go, vector)
   end
 end
 
-function goStepXZ(xzPosition, dig, attack, wait, alternate)
-  local forceGo = turtleForceGo(dig, attack)
-  return moveStepBy(forceGo, xzPosition:withY(nil))
-end
-
-function goStepY(y, dig, attack, wait)
-  local forceGo = turtleForceGo(dig, attack)
-  return moveStepBy(forceGo, Vec(nil, y, nil))
-end
-
-function goTo(position, rotation, dig, attack, wait, straight)
- if dig == nil then dig = false end
- if attack == nil then attack = true end
- if wait == nil then wait = true end
- if straight == nil then straight = false end
- local oldY = position.y
- while not isAt(position) do
-  if not isAt(position:withY(nil)) then
-   local alternate = 0
-   local dodge = -1
-   if straight then alternate = 2 end
-   if position.y >= oldY then dodge = dodge * -1 end
-   while not goStepXZ(offsetTo(position), dig and alternate == 2, attack, false) and not goStepXZ(offsetTo(position), dig and alternate == 2, attack, false, true) do
-    if not goStepY(dodge, dig and alternate == 2, attack, false) then
-	 if alternate == 0 then
-	  alternate = alternate + 1
-	  dodge = dodge * -1
-	 elseif alternate == 1 then
-	  alternate = alternate + 1
-	 elseif alternate >= 2 then
-	  if not wait then
-	   return false
-	  else
-	   alternate = 0
-	   dodge = dodge * -1
-	   if straight then alternate = 2 end
-	  end
-	 end
-	end
-    sleep(0.2)
-   end
-  elseif not isAt(Vec(nil, position.y, nil)) then
-   if not goStepY(position.y - globalPosition.y, true, attack, false) and not wait then return false end
+local function moveStepDirectionBy(go, vector)
+  local step1 = vector:nextStep()
+  if not step1:isNull() then
+    if moveStepBy(go, step1) then return true end
+    local vector2 = Vec(step1.x == 0 and vector.x or 0, step1.y == 0 and vector.y or 0, step1.z == 0 and vector.z or 0)
+    local step2 = vector2:nextStep()
+    if not step2:isNull() then
+      if moveStepBy(go, step2) then return true end
+      local vector3 = Vec(step2.x == 0 and vector2.x or 0, step2.y == 0 and vector2.y or 0, step2.z == 0 and vector2.z or 0)
+      local step3 = vector3:nextStep()
+      if not step3:isNull() then
+        return moveStepBy(go, step3)
+      else
+        return false
+      end
+    else
+      return false
+    end
   end
-  sleep(0.2)
- end
- if rotation ~= nil then rotateTo(rotation) end
- return true
+  return true
 end
 
-loadCoords()
+local function forceMoveStepBy(vector, dig, attack)
+  local forceGo = turtleForceGo(false, attack)
+  if moveStepDirectionBy(forceGo, vector) then return true end
+  if dig then
+    forceGo = turtleForceGo(true, attack)
+    if moveStepDirectionBy(forceGo, vector) then return true end
+  end
+  if vector:nextStep().y < 1 then
+    local xzVector = vector:withY(nil)
+    while forceGo.up() do
+      if moveStepDirectionBy(forceGo, xzVector) then return true end
+    end
+  end
+  return false
+end
+
+function moveTo(position, rotation, dig, attack)
+  while not isAt(position) do
+    if not forceMoveStepBy(offsetTo(position), dig, attack) then return false end
+  end
+  
+  if rotation then rotateTo(rotation) end
+  
+  return true
+end
 
 -- constants
 slot_dump = 1
@@ -540,35 +534,37 @@ local isOre = (function()
 end)()
 
 function checkAround()
- for i = 1, 4 do
-   if isOre.forward() then digStack:push(offsetBy(offset.forward())) end
-   rotateBy(1)
- end
- if isOre.up() then digStack:push(offsetBy(offset.up())) end
- if isOre.down() then digStack:push(offsetBy(offset.down())) end
+  for i = 1, 4 do
+    if isOre.forward() then digStack:push(offsetBy(offset.forward())) end
+    rotateBy(1)
+  end
+  if isOre.up() then digStack:push(offsetBy(offset.up())) end
+  if isOre.down() then digStack:push(offsetBy(offset.down())) end
 end
 
 function dig(count, up)
- if count == nil then count = 1 end
- local ret = false
- for i = 1, count, 1 do
-  if up == nil then up = true end
-  pushDigTask(getX() + getRotationOffsetX(), getY(), getZ() + getRotationOffsetZ(), getRotation())
-  local x, y, z, r
-  local oldY = getY()
-  local check = true
-  while true do
-   if check and sizeDigTask()>0 then checkAround(getY() ~= oldY) end
-   oldY = getY()
-   dumpIfNeeded()
-   turtle.select(slot_items)
-   if up and x==nil then digUp() end
-   position, r = digStack:pop()
-   if x==nil then break end
-   check = goTo(position.x, position.y, position.z, r, true, true, false, true)
+  if count == nil then count = 1 end
+  
+  local ret = false
+  for i = 1, count, 1 do
+    if up == nil then up = true end
+    pushDigTask(getX() + getRotationOffsetX(), getY(), getZ() + getRotationOffsetZ(), getRotation())
+    local x, y, z, r
+    local oldY = getY()
+    local check = true
+    while true do
+      if check and sizeDigTask()>0 then checkAround(getY() ~= oldY) end
+      oldY = getY()
+      dumpIfNeeded()
+      turtle.select(slot_items)
+      if up and x==nil then digUp() end
+      position, r = digStack:pop()
+      if x==nil then break end
+      check = moveTo(Vec(position.x, position.y, position.z), r, true, true)
+    end
   end
- end
- return ret
+  
+  return ret
 end
 
 function getSlotDump()
@@ -587,14 +583,6 @@ function getSlotItems()
  return slot_items
 end
 
-function getMinFuelLevel()
- return minFuelLevel
-end
-
-function getDigStack()
- return digStack
-end
-
 function setSlotDump(slot)
  slot_dump = slot
 end
@@ -611,83 +599,79 @@ function setSlotItems(slot)
  slot_items = slot
 end
 
-function setDigStack(stack)
- digStack = stack
-end
-
 local function printInfo()
- print("intelliMine by LolHens")
- print("Slot "..getSlotDump()..":      Ender Chest")
- print("Slot "..getSlotIgnore().." - "..getSlotIgnoreMax()..":  Ignored Blocks")
- print("Slot "..getSlotItems().." - 16: Empty Slots")
- sleep(2)
+  print("intelliMine by LolHens")
+  print("Slot "..getSlotDump()..":      Ender Chest")
+  print("Slot "..getSlotIgnore().." - "..getSlotIgnoreMax()..":  Ignored Blocks")
+  print("Slot "..getSlotItems().." - 16: Empty Slots")
+  sleep(2)
 end
 
 local function saveMinePos(count, i)
- local file = io.open(".intelliMinePos", "w")
- file:write(getX().."\n")
- file:write(getY().."\n")
- file:write(getZ().."\n")
- file:write(getRotation().."\n")
- file:write(count.."\n")
- file:write(i.."\n")
- file:write(getSlotDump().."\n")
- file:write(getSlotIgnore().."\n")
- file:write(getSlotIgnoreMax().."\n")
- file:write(getSlotItems().."\n")
- file:flush()
- file:close()
+  local file = io.open(".intelliMinePos", "w")
+  file:write(getX().."\n")
+  file:write(getY().."\n")
+  file:write(getZ().."\n")
+  file:write(getRotation().."\n")
+  file:write(count.."\n")
+  file:write(i.."\n")
+  file:write(getSlotDump().."\n")
+  file:write(getSlotIgnore().."\n")
+  file:write(getSlotIgnoreMax().."\n")
+  file:write(getSlotItems().."\n")
+  file:flush()
+  file:close()
 end
 
 local function loadMinePos()
- if not fs.exists(".intelliMinePos") then
-  return
- end
- local file = io.open(".intelliMinePos", "r")
- local x = tonumber(file:read("*l"))
- local y = tonumber(file:read("*l"))
- local z = tonumber(file:read("*l"))
- local r = tonumber(file:read("*l"))
- local count = tonumber(file:read("*l"))
- local i = tonumber(file:read("*l"))
- setSlotDump(tonumber(file:read("*l")))
- setSlotIgnore(tonumber(file:read("*l")))
- setSlotIgnoreMax(tonumber(file:read("*l")))
- setSlotItems(tonumber(file:read("*l")))
- file:close()
- goTo(x, y, z, r, true, true, false, true)
+  if not fs.exists(".intelliMinePos") then
+    return
+  end
+  local file = io.open(".intelliMinePos", "r")
+  local x = tonumber(file:read("*l"))
+  local y = tonumber(file:read("*l"))
+  local z = tonumber(file:read("*l"))
+  local r = tonumber(file:read("*l"))
+  local count = tonumber(file:read("*l"))
+  local i = tonumber(file:read("*l"))
+  setSlotDump(tonumber(file:read("*l")))
+  setSlotIgnore(tonumber(file:read("*l")))
+  setSlotIgnoreMax(tonumber(file:read("*l")))
+  setSlotItems(tonumber(file:read("*l")))
+  file:close()
+  moveTo(Vec(x, y, z), r, true, true)
 end
 
 function stripmine(count, depth)
- while true do
-  saveMinePos(count, i)
-  i = i + 1
-  digUp()
-  dig()
-  turnRight(2)
-  dig()
-  turnLeft()
-  dig(depth)
-  turnLeft()
-  dig(3)
-  turnLeft()
-  dig(depth)
-  turnLeft()
-  dig()
-  turnRight(2)
-  dig(4)
- end
+  while true do
+    saveMinePos(count, i)
+    i = i + 1
+    digUp()
+    dig()
+    turnRight(2)
+    dig()
+    turnLeft()
+    dig(depth)
+    turnLeft()
+    dig(3)
+    turnLeft()
+    dig(depth)
+    turnLeft()
+    dig()
+    turnRight(2)
+    dig(4)
+  end
 end
 
 function main()
- count=tonumber(tArgs[1])
- depth=tonumber(tArgs[2])
- if count==nil then count=-1 end
- if depth==nil then depth=30 end
- init()
- loadMinePos()
- printInfo()
- stripmine(count, depth)
+  count=tonumber(tArgs[1])
+  depth=tonumber(tArgs[2])
+  if count==nil then count=-1 end
+  if depth==nil then depth=30 end
+  init()
+  loadMinePos()
+  printInfo()
+  stripmine(count, depth)
 end
 
 main()
