@@ -3,7 +3,7 @@
 
 tArgs = {...}
 
-local turtleRaw = {
+turtleRaw = {
   go = {
     forward = turtle.forward,
     up = turtle.up,
@@ -55,19 +55,31 @@ local turtleRaw = {
   },
 }
 
-local function rotationOffsetBy(rotation, other)
+function rotationOffsetBy(rotation, other)
   if not rotation or not other then return end
   
   return (rotation + other + 4) % 4
 end
 
-local function rotationOffsetTo(rotation, other)
+function rotationLeft(rotation)
+  return rotationOffsetBy(rotation, -1)
+end
+
+function rotationRight(rotation)
+  return rotationOffsetBy(rotation, 1)
+end
+
+function rotationBack(rotation)
+  return rotationOffsetBy(rotation, 2)
+end
+
+function rotationOffsetTo(rotation, other)
   if not rotation or not other then return end
   
   return (other - rotation + 4) % 4
 end
 
-local function rotateBy(rotation)
+function rotateBy(rotation)
   rotation = rotationOffsetBy(rotation, 0)
   if rotation == 3 then return turtleRaw.turn.left() end
   for i = 1, rotation do
@@ -76,7 +88,7 @@ local function rotateBy(rotation)
   return true
 end
 
-local function Vec(x, y, z)
+function Vec(x, y, z)
   if not x and not y and not z then
     x, y, z = 0, 0, 0
   elseif not y and not z then
@@ -151,14 +163,14 @@ local function Vec(x, y, z)
   }
 end
 
-local offset = {
+offset = {
   up = function()
     return Vec(0, 1, 0)
   end,
   down = function()
     return Vec(0, -1, 0)
   end,
-  rotation = function(rotation)
+  forward = function(rotation)
     rotation = rotationOffsetBy(rotation, 0)
     if rotation == 0 then return Vec(0, 0, -1) end
     if rotation == 1 then return Vec(1, 0, 0) end
@@ -166,9 +178,18 @@ local offset = {
     if rotation == 3 then return Vec(-1, 0, 0) end
     return
   end,
+  left = function(rotation)
+    return offset.forward(rotationLeft(rotation))
+  end,
+  right = function(rotation)
+    return offset.forward(rotationRight(rotation))
+  end,
+  back = function(rotation)
+    return offset.forward(rotationBack(rotation))
+  end,
 }
 
-local function isItemIn(item, list)
+function isItemIn(item, list)
   if not item or not list then return end
   
   for _, entry in ipairs(list) do
@@ -180,7 +201,7 @@ local function isItemIn(item, list)
   return false
 end
 
-local function refuel(refuelMin)
+function refuel(refuelMin)
   local limit = turtle.getFuelLimit()
   local refuelMax = limit - 100
   local refuelThreshold = refuelMin
@@ -202,7 +223,7 @@ local function refuel(refuelMin)
   return turtle.getFuelLevel() >= refuelMin
 end
 
-local function turtleForce(action, dig, attack)
+function turtleForce(action, dig, attack)
   if dig == nil then dig = false end
   if attack == nil then attack = true end
   
@@ -258,7 +279,7 @@ local function turtleForce(action, dig, attack)
   }
 end
 
-local function locate()
+function locate()
   local position = Vec(gps.locate())
   
   local function rotationByMove(go, rotationOffset)
@@ -273,7 +294,7 @@ local function locate()
       go.back()
     elseif go.back() then
       offsetPosition = Vec(gps.locate())
-      rotationOffset = rotationOffsetBy(rotationOffset, 2)
+      rotationOffset = rotationBack(rotationOffset)
       go.forward()
     end
     
@@ -302,25 +323,61 @@ end
 
 globalPosition, globalRotation = locate()
 
-offset.forward = function()
-  return offset.rotation(globalRotation)
-end
+offset.forward = (function()
+  local delegate = offset.forward
+  
+  return function(rotation)
+    if not rotation then rotation = globalRotation end
+    
+    return delegate(rotation)
+  end
+end)()
 
-local function isAt(position)
+offset.left = (function()
+  local delegate = offset.left
+  
+  return function(rotation)
+    if not rotation then rotation = globalRotation end
+    
+    return delegate(rotation)
+  end
+end)()
+
+offset.right = (function()
+  local delegate = offset.right
+  
+  return function(rotation)
+    if not rotation then rotation = globalRotation end
+    
+    return delegate(rotation)
+  end
+end)()
+
+offset.back = (function()
+  local delegate = offset.back
+  
+  return function(rotation)
+    if not rotation then rotation = globalRotation end
+    
+    return delegate(rotation)
+  end
+end)()
+
+function isAt(position)
   return globalPosition:isAt(position)
 end
 
-local function offsetTo(position)
+function offsetTo(position)
   return globalPosition:offsetTo(position)
 end
 
-local function offsetBy(vector)
+function offsetBy(vector)
   return globalPosition:offsetBy(vector)
 end
 
-local updateGlobalPositionAndRotation = {
+updateGlobalPositionAndRotation = {
   forward = function()
-    globalPosition = globalPosition:offsetBy(offset.rotation(globalRotation))
+    globalPosition = globalPosition:offsetBy(offset.forward(globalRotation))
   end,
   up = function()
     globalPosition = globalPosition:offsetBy(Vec(0, 1, 0))
@@ -329,13 +386,13 @@ local updateGlobalPositionAndRotation = {
     globalPosition = globalPosition:offsetBy(Vec(0, -1, 0))
   end,
   back = function()
-    globalPosition = globalPosition:offsetBy(offset.rotation(rotationOffsetBy(globalRotation, 2)))
+    globalPosition = globalPosition:offsetBy(offset.back(globalRotation))
   end,
   left = function()
-    globalRotation = rotationOffsetBy(globalRotation, 3)
+    globalRotation = rotationLeft(globalRotation)
   end,
   right = function()
-    globalRotation = rotationOffsetBy(globalRotation, 1)
+    globalRotation = rotationRight(globalRotation)
   end,
 }
 
@@ -373,11 +430,11 @@ turtleRaw = (function()
   return result
 end)()
 
-local function rotateTo(rotation)
+function rotateTo(rotation)
   return rotateBy(rotationOffsetTo(globalRotation, rotation))
 end
 
-local function moveStepBy(go, vector)
+function moveStepBy(go, vector)
   local step = vector:nextStep()
   local rotationOffset = rotationOffsetTo(globalRotation, step:xzRotation())
   
@@ -395,7 +452,7 @@ local function moveStepBy(go, vector)
   end
 end
 
-local function moveStepDirectionBy(go, vector)
+function moveStepDirectionBy(go, vector)
   local step = vector:nextStep()
   if step:isNull() then return true end
   repeat
@@ -406,7 +463,7 @@ local function moveStepDirectionBy(go, vector)
   return false
 end
 
-local function forceMoveStepBy(vector, dig, attack)
+function forceMoveStepBy(vector, dig, attack)
   local forceGo = turtleForce(turtleRaw.go, false, attack)
   if moveStepDirectionBy(forceGo, vector) then return true end
   if dig then
@@ -429,7 +486,7 @@ function moveTo(position, dig, attack)
   return true
 end
 
-local function DigStack()
+function DigStack()
   return {
     size = function(self)
       local i = 1
@@ -469,8 +526,7 @@ local function DigStack()
       end
       local nearestIndex, nearest = nil, nil
       while self[i] do
-        local offset = position:offsetTo(self[i])
-        local length = offset:length2()
+        local length = position:offsetTo(self[i]):length2()
         if not nearest or length <= nearest then
           nearest = length
           nearestIndex = i
@@ -495,14 +551,14 @@ digStack = DigStack()
 
 dumpBlockSlot = 1
 
-local function shouldDump()
+function shouldDump()
   for slot = 1, 16 do
     if turtle.getItemCount(slot) == 0 then return false end
   end
   return true
 end
 
-local function dumpItems()
+function dumpItems()
   refuel()
   
   local selected = turtle.getSelectedSlot()
@@ -523,7 +579,7 @@ local function dumpItems()
   turtle.select(selected)
 end
 
-local function loadList(fileName, create)
+function loadList(fileName, create)
   if not fs.exists(fileName) then
     if create then
       io.open(fileName, "w"):close()
@@ -549,7 +605,7 @@ end
 
 local oreList = loadList("ores.txt", true)
 
-local isOre = (function()
+isOre = (function()
   local function isOre(direction)
     local inspect, item = turtleRaw.inspect[direction]()
     return isItemIn(inspect and item, oreList)
@@ -562,7 +618,7 @@ local isOre = (function()
   }
 end)()
 
-local function queueSurroundingOres(keepRotation, skipRotation)
+function queueSurroundingOres(keepRotation, skipRotation)
   if keepRotation == nil then keepRotation = true end
   
   local function queueOre(direction)
@@ -575,7 +631,7 @@ local function queueSurroundingOres(keepRotation, skipRotation)
   
   local result = false
   for i = 1, 4 do
-    if not keepRotation and i == 3 and skipRotation and skipRotation == rotationOffsetBy(globalRotation, 1) then break end
+    if not keepRotation and i == 3 and skipRotation and skipRotation == rotationRight(globalRotation) then break end
     result = queueOre("forward") or result
     if keepRotation or i < 4 then rotateBy(1) end
   end
@@ -584,12 +640,12 @@ local function queueSurroundingOres(keepRotation, skipRotation)
   return result
 end
 
-local function mine(count, position, rotation)
+function mine(count, position, rotation)
   if not count then count = 0 end
   if not position then position = globalPosition end
   if not rotation then rotation = globalRotation end
   
-  local offsetForward = offset.rotation(rotation)
+  local offsetForward = offset.forward(rotation)
   for i = count, 0, -1 do
     local minePos = position:offsetBy(offsetForward:times(i))
     digStack:push(minePos:offsetBy(offset.up()))
@@ -602,25 +658,23 @@ local function mine(count, position, rotation)
     turtle.select(2)
     -- TODO: suck
     local off = position:offsetTo(nextPosition)
-    local onPath = (off.y == 0 or off.y == 1) and (off.x == 0 or off.z == 0)
+    local onPath = (off.y == 0 or off.y == 1) and ((off.x == 0 and off.z ~= 0) or (off.x ~= 0 and off.z == 0))
     while not moveTo(nextPosition, true) do
       if turtle.getFuelLevel() > 0 then break end
       while not refuel() do
         print("ERROR: out of fuel!")
       end
     end
-    queueSurroundingOres(false, onPath and rotationOffsetBy(rotation, 2))
+    queueSurroundingOres(false, onPath and rotationBack(rotation))
     if nextRotation then rotateTo(nextRotation) end
   end
   
-  local result = moveTo(position:offsetBy(offsetForward:times(count)), true)
-  rotateTo(rotation)
-  return result
+  return position:offsetBy(offsetForward:times(count)), rotation
 end
 
 local minePosFile = ".minepos"
 
-local function saveMinePos(position, rotation)
+function saveMinePos(position, rotation)
   local file = io.open(minePosFile, "w")
   file:write(position.x.."\n")
   file:write(position.y.."\n")
@@ -630,7 +684,7 @@ local function saveMinePos(position, rotation)
   file:close()
 end
 
-local function loadMinePos()
+function loadMinePos()
   if not fs.exists(minePosFile) then
     return
   end
@@ -649,14 +703,17 @@ function stripmine(position, rotation, depth, length)
   
   local i = 1
   while not length or i <= length do
-    saveMinePos(globalPosition, globalRotation)
-    local pos1 = globalPosition
-    mine(1, pos1, rotation)
-    mine(depth, pos1, rotationOffsetBy(rotation, 1))
-    local pos2 = globalPosition
-    mine(3, nil, rotation)
-    mine(depth, nil, rotationOffsetBy(rotation, -1))
-    mine(5, pos1:offsetBy(offset.rotation(rotation):times(3)), rotation)
+    saveMinePos(position, rotation)
+    mine(1, position, rotation)
+    position = mine(depth, position:offsetBy(offset.right(rotation)), rotationRight(rotation))
+    position = mine(2, position:offsetBy(offset.forward(rotation)), rotation)
+    position = mine(depth, position:offsetBy(offset.left(rotation)), rotationLeft(rotation))
+    mine(0, position:offsetBy(offset.forward(rotation)), rotation)
+    mine(0, position:offsetBy(offset.back(rotation)), rotationBack(rotation))
+    position = mine(depth, position:offsetBy(offset.left(rotation)), rotationLeft(rotation))
+    position = mine(2, position:offsetBy(offset.forward(rotation)), rotation)
+    position = mine(depth, position:offsetBy(offset.right(rotation)), rotationRight(rotation))
+    position = mine(1, position:offsetBy(offset.back(rotation)), rotation)
     i = i + 1
   end
 end
@@ -687,7 +744,7 @@ function main()
   end
   
   if position ~= globalPosition or rotation ~= globalRotation then
-    print("Resuming at "..position.string().." "..rotation)
+    print("Resuming at "..position:string().." "..rotation)
   end
   
   stripmine(position, rotation, depth, length)
