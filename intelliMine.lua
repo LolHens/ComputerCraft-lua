@@ -55,8 +55,121 @@ local turtleRaw = {
   },
 }
 
+local function rotationOffsetBy(rotation, other)
+  if not rotation or not other then return end
+  
+  return (rotation + other + 4) % 4
+end
+
+local function rotationOffsetTo(rotation, other)
+  if not rotation or not other then return end
+  
+  return (other - rotation + 4) % 4
+end
+
+local function rotateBy(rotation)
+  rotation = rotationOffsetBy(rotation, 0)
+  if rotation == 3 then return turtleRaw.turn.left() end
+  for i = 1, rotation do
+    if not turtleRaw.turn.right() then return false end
+  end
+  return true
+end
+
+local function Vec(x, y, z)
+  if not x and not y and not z then
+    x, y, z = 0, 0, 0
+  elseif not y and not z then
+    y, z = x, x
+  elseif not z then
+    return
+  end
+  
+  return {
+    x = x,
+    y = y,
+    z = z,
+    copy = function(self)
+      return Vec(self.x, self.y, self.z)
+    end,
+    withX = function(self, x)
+      return Vec(x, self.y, self.z)
+    end,
+    withY = function(self, y)
+      return Vec(self.x, y, self.z)
+    end,
+    withZ = function(self, z)
+      return Vec(self.x, self.y, z)
+    end,
+    isNull = function(self)
+      return (not self.x or self.x == 0) and (not self.y or self.y == 0) and (not self.z or self.z == 0)
+    end,
+    isAt = function(self, other)
+      if not other then return nil end
+      
+      return (not self.x or not other.x or self.x == other.x) and (not self.y or not other.y or self.y == other.y) and (not self.z or not other.z or self.z == other.z)
+    end,
+    offsetBy = function(self, other)
+      if not other then return end
+      
+      return Vec(self.x and other.x and (self.x + other.x), self.y and other.y and (self.y + other.y), self.z and other.z and (self.z + other.z))
+    end,
+    offsetTo = function(self, other)
+      if not other then return end
+      
+      return Vec(self.x and other.x and (other.x - self.x), self.y and other.y and (other.y - self.y), self.z and other.z and (other.z - self.z))
+    end,
+    times = function(self, value)
+      if not value then return end
+      
+      if value == 1 then return self end
+      return Vec(self.x and self.x * value, self.y and self.y * value, self.z and self.z * value)
+    end,
+    length2 = function(self)
+      return (self.x and (self.x * self.x) or 0) + (self.y and (self.y * self.y) or 0) + (self.z and (self.z * self.z) or 0)
+    end,
+    xzRotation = function(self)
+      if self.x == 0 and self.z < 0 then return 0 end
+      if self.x > 0 and self.z == 0 then return 1 end
+      if self.x == 0 and self.z > 0 then return 2 end
+      if self.x < 0 and self.z == 0 then return 3 end
+      return
+    end,
+    nextStep = function(self)
+      if self.y and (not self.x or math.abs(self.x) <= math.abs(self.y)) and (not self.z or math.abs(self.z) <= math.abs(self.y)) then
+        return Vec(0, self.y >= 1 and 1 or self.y <= -1 and -1 or 0, 0)
+      elseif self.x and (not self.z or math.abs(self.z) <= math.abs(self.x)) then
+        return Vec(self.x >= 1 and 1 or self.x <= -1 and -1 or 0, 0, 0)
+      elseif self.z then
+        return Vec(0, 0, self.z >= 1 and 1 or self.z <= -1 and -1 or 0)
+      end
+      return Vec(0, 0, 0)
+    end,
+    string = function(self)
+      return "{x="..(self.x or "nil")..",y="..(self.y or "nil")..",z="..(self.z or "nil").."}"
+    end,
+  }
+end
+
+local offset = {
+  up = function()
+    return Vec(0, 1, 0)
+  end,
+  down = function()
+    return Vec(0, -1, 0)
+  end,
+  rotation = function(rotation)
+    rotation = rotationOffsetBy(rotation, 0)
+    if rotation == 0 then return Vec(0, 0, -1) end
+    if rotation == 1 then return Vec(1, 0, 0) end
+    if rotation == 2 then return Vec(0, 0, 1) end
+    if rotation == 3 then return Vec(-1, 0, 0) end
+    return
+  end,
+}
+
 local function isItemIn(item, list)
-  if not item or not list then return nil end
+  if not item or not list then return end
   
   for _, entry in ipairs(list) do
     if item.name == entry then return true end
@@ -128,128 +241,22 @@ local function turtleForce(action, dig, attack)
     
     if action.back and action.back(...) then return true end
     
-    turtleRaw.turn.right()
-    turtleRaw.turn.right()
+    rotateBy(2)
     local result = force("forward", ...)
     if keepRotation then
-      turtleRaw.turn.left()
-      turtleRaw.turn.left()
+      rotateBy(2)
     end
     return result
   end
  
   return {
-    forward = function(...) return force("forward", ...) end,
-    up = function(...) return force("up", ...) end,
-    down = function(...) return force("down", ...) end,
-    back = function(...) return forceBack(true, ...) end,
-    backAnyRotation = function(...) return forceBack(false, ...) end,
+    forward = function() return force("forward") end,
+    up = function() return force("up") end,
+    down = function() return force("down") end,
+    back = function() return forceBack(true) end,
+    backAnyRotation = function() return forceBack(false) end,
   }
 end
-
-local function rotationOffsetBy(rotation, other)
-  if not rotation or not other then return nil end
-  
-  return (rotation + other + 4) % 4
-end
-
-local function rotationOffsetTo(rotation, other)
-  if not rotation or not other then return nil end
-  
-  return (other - rotation + 4) % 4
-end
-
-local function Vec(x, y, z)
-  if not x and not y and not z then
-    x, y, z = 0, 0, 0
-  elseif not y and not z then
-    y, z = x, x
-  elseif not z then
-    return nil
-  end
-  
-  return {
-    x = x,
-    y = y,
-    z = z,
-    copy = function(self)
-      return Vec(self.x, self.y, self.z)
-    end,
-    withX = function(self, x)
-      return Vec(x, self.y, self.z)
-    end,
-    withY = function(self, y)
-      return Vec(self.x, y, self.z)
-    end,
-    withZ = function(self, z)
-      return Vec(self.x, self.y, z)
-    end,
-    isNull = function(self)
-      return (not self.x or self.x == 0) and (not self.y or self.y == 0) and (not self.z or self.z == 0)
-    end,
-    isAt = function(self, other)
-      if not other then return nil end
-      
-      return (not self.x or not other.x or self.x == other.x) and (not self.y or not other.y or self.y == other.y) and (not self.z or not other.z or self.z == other.z)
-    end,
-    offsetBy = function(self, other)
-      if not other then return nil end
-      
-      return Vec(self.x and other.x and (self.x + other.x), self.y and other.y and (self.y + other.y), self.z and other.z and (self.z + other.z))
-    end,
-    offsetTo = function(self, other)
-      if not other then return nil end
-      
-      return Vec(self.x and other.x and (other.x - self.x), self.y and other.y and (other.y - self.y), self.z and other.z and (other.z - self.z))
-    end,
-    times = function(self, value)
-      if not value then return nil end
-      
-      if value == 1 then return self end
-      return Vec(self.x and self.x * value, self.y and self.y * value, self.z and self.z * value)
-    end,
-    length2 = function(self)
-      return (self.x and (self.x * self.x) or 0) + (self.y and (self.y * self.y) or 0) + (self.z and (self.z * self.z) or 0)
-    end,
-    xzRotation = function(self)
-      if self.x == 0 and self.z < 0 then return 0 end
-      if self.x > 0 and self.z == 0 then return 1 end
-      if self.x == 0 and self.z > 0 then return 2 end
-      if self.x < 0 and self.z == 0 then return 3 end
-      return nil
-    end,
-    nextStep = function(self)
-      if self.y and (not self.x or math.abs(self.x) <= math.abs(self.y)) and (not self.z or math.abs(self.z) <= math.abs(self.y)) then
-        return Vec(0, self.y >= 1 and 1 or self.y <= -1 and -1 or 0, 0)
-      elseif self.x and (not self.z or math.abs(self.z) <= math.abs(self.x)) then
-        return Vec(self.x >= 1 and 1 or self.x <= -1 and -1 or 0, 0, 0)
-      elseif self.z then
-        return Vec(0, 0, self.z >= 1 and 1 or self.z <= -1 and -1 or 0)
-      end
-      return Vec(0, 0, 0)
-    end,
-    string = function(self)
-      return "{x="..(self.x or "nil")..",y="..(self.y or "nil")..",z="..(self.z or "nil").."}"
-    end,
-  }
-end
-
-local offset = {
-  up = function()
-    return Vec(0, 1, 0)
-  end,
-  down = function()
-    return Vec(0, -1, 0)
-  end,
-  rotation = function(rotation)
-    rotation = rotationOffsetBy(rotation, 0)
-    if rotation == 0 then return Vec(0, 0, -1) end
-    if rotation == 1 then return Vec(1, 0, 0) end
-    if rotation == 2 then return Vec(0, 0, 1) end
-    if rotation == 3 then return Vec(-1, 0, 0) end
-    return nil
-  end,
-}
 
 local function locate()
   local position = Vec(gps.locate())
@@ -257,7 +264,7 @@ local function locate()
   local function rotationByMove(go, rotationOffset)
     if not rotationOffset then rotationOffset = 0 end
     
-    if not refuel(2) then return nil end
+    if not refuel(2) then return end
     
     local offsetPosition = position:copy()
     
@@ -275,18 +282,18 @@ local function locate()
   
   local rotation = rotationByMove(turtleRaw.go)
   if not rotation then
-    turtleRaw.turn.right()
+    rotateBy(1)
     rotation = rotationByMove(turtleRaw.go, 3)
-    turtleRaw.turn.left()
+    rotateBy(-1)
   end
   if not rotation then
     local forceGo = turtleForce(turtleRaw.go, true)
     
     rotation = rotationByMove(forceGo)
     if not rotation then
-      turtleRaw.turn.right()
+      rotateBy(1)
       rotation = rotationByMove(forceGo, 3)
-      turtleRaw.turn.left()
+      rotateBy(-1)
     end
   end
   
@@ -335,16 +342,16 @@ local updateGlobalPositionAndRotation = {
 turtleRaw = (function()
   local delegate = turtleRaw
   
-  function goTracked(direction, ...)
-    if delegate.go[direction](...) then
+  function goTracked(direction)
+    if delegate.go[direction]() then
       updateGlobalPositionAndRotation[direction]()
       return true
     end
     return false
   end
   
-  function turnTracked(direction, ...)
-    if delegate.turn[direction](...) then
+  function turnTracked(direction)
+    if delegate.turn[direction]() then
       updateGlobalPositionAndRotation[direction]()
       return true
     end
@@ -354,26 +361,17 @@ turtleRaw = (function()
   local result = {}
   for k, v in pairs(delegate) do result[k] = v end
   result.go = {
-    forward = function(...) return goTracked("forward", ...) end,
-    up = function(...) return goTracked("up", ...) end,
-    down = function(...) return goTracked("down", ...) end,
-    back = function(...) return goTracked("back", ...) end,
+    forward = function() return goTracked("forward") end,
+    up = function() return goTracked("up") end,
+    down = function() return goTracked("down") end,
+    back = function() return goTracked("back") end,
   }
   result.turn = {
-    left = function(...) return turnTracked("left", ...) end,
-    right = function(...) return turnTracked("right", ...) end,
+    left = function() return turnTracked("left") end,
+    right = function() return turnTracked("right") end,
   }
   return result
 end)()
-
-local function rotateBy(rotation)
-  rotation = rotationOffsetBy(rotation, 0)
-  if rotation == 3 then return turtleRaw.turn.left() end
-  for i = 1, rotation do
-    if not turtleRaw.turn.right() then return false end
-  end
-  return true
-end
 
 local function rotateTo(rotation)
   return rotateBy(rotationOffsetTo(globalRotation, rotation))
@@ -530,7 +528,7 @@ local function loadList(fileName, create)
     if create then
       io.open(fileName, "w"):close()
     end
-    return nil
+    return
   end
   local file = io.open(fileName, "r")
   local list = {}
@@ -604,8 +602,8 @@ local function mine(position, rotation, count)
     turtle.select(2)
     -- TODO: suck
     local horizontal = offsetTo(position).y == 0
-    while not moveTo(position, true) then
-      if turtle.getFuelLevel() > 0 then break
+    while not moveTo(position, true) do
+      if turtle.getFuelLevel() > 0 then break end
       while not refuel() do
         print("ERROR: out of fuel!")
       end
@@ -614,7 +612,7 @@ local function mine(position, rotation, count)
     if rotation then rotateTo(rotation) end
   end
   
-  local result = moveTo(position:offsetBy(offsetForward:times(count)))
+  local result = moveTo(position:offsetBy(offsetForward:times(count)), true)
   rotateTo(rotation)
   return result
 end
@@ -649,38 +647,47 @@ local function loadMinePos()
   return Vec(x, y, z), r
 end
 
-function stripmine(count, depth)
-  while true do
+function stripmine(position, rotation, depth, length)
+  moveTo(position, true)
+  if rotation then rotateTo(rotation) end
+  
+  local i = 1
+  while not length or i <= length do
     saveMinePos(globalPosition, globalRotation)
-    i = i + 1
-    turtleRaw.dig.up()
     mine()
-    turnRight(2)
+    rotateBy(2)
     mine()
-    turnLeft()
+    rotateBy(-1)
     mine(depth)
-    turnLeft()
+    rotateBy(-1)
     mine(3)
-    turnLeft()
+    rotateBy(-1)
     mine(depth)
-    turnLeft()
+    rotateBy(-1)
     mine()
-    turnRight(2)
+    rotateBy(2)
     mine(4)
+    i = i + 1
   end
 end
 
 function main()
-  count=tonumber(tArgs[1])
-  depth=tonumber(tArgs[2])
-  if count==nil then count=-1 end
+  depth=tonumber(tArgs[1])
+  length=tonumber(tArgs[2])
+  
   if depth==nil then depth=30 end
-  init()
+  
   local position, rotation = loadMinePos()
+  if not position then
+    position = globalPosition
+    rotation = globalRotation
+  end
+  
   printInfo()
-  moveTo(position, true)
-  rotateTo(rotation)
-  stripmine(count, depth)
+  while not refuel() do
+    print("ERROR: out of fuel!")
+  end
+  stripmine(position, rotation, depth, length)
 end
 
 main()
