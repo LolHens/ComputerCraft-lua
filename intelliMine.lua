@@ -575,7 +575,7 @@ local function queueSurroundingOres(keepRotation, skipRotation)
   
   local result = false
   for i = 1, 4 do
-    if not keepRotation and skipRotation == 3 and i == 3 then break end
+    if not keepRotation and i == 3 and skipRotation and skipRotation == rotationOffsetBy(globalRotation, 1) then break end
     result = queueOre("forward") or result
     if keepRotation or i < 4 then rotateBy(1) end
   end
@@ -584,10 +584,10 @@ local function queueSurroundingOres(keepRotation, skipRotation)
   return result
 end
 
-local function mine(position, rotation, count)
+local function mine(count, position, rotation)
+  if not count then count = 0 end
   if not position then position = globalPosition end
   if not rotation then rotation = globalRotation end
-  if not count then count = 1 end
   
   local offsetForward = offset.rotation(rotation)
   for i = count, 0, -1 do
@@ -597,29 +597,25 @@ local function mine(position, rotation, count)
   end
   
   while not digStack:isEmpty() do
-    local position, rotation = digStack:popNearest(globalPosition, 10)
+    local nextPosition, nextRotation = digStack:popNearest(globalPosition, 10)
     if shouldDump() then dumpItems() end
     turtle.select(2)
     -- TODO: suck
-    local horizontal = offsetTo(position).y == 0
-    while not moveTo(position, true) do
+    local off = position:offsetTo(nextPosition)
+    local onPath = (off.y == 0 or off.y == 1) and (off.x == 0 or off.z == 0)
+    while not moveTo(nextPosition, true) do
       if turtle.getFuelLevel() > 0 then break end
       while not refuel() do
         print("ERROR: out of fuel!")
       end
     end
-    queueSurroundingOres(false, horizontal and 3)
-    if rotation then rotateTo(rotation) end
+    queueSurroundingOres(false, onPath and rotationOffsetBy(rotation, 2))
+    if nextRotation then rotateTo(nextRotation) end
   end
   
   local result = moveTo(position:offsetBy(offsetForward:times(count)), true)
   rotateTo(rotation)
   return result
-end
-
-local function printInfo()
-  print("intelliMine by LolHens")
-  sleep(2)
 end
 
 local minePosFile = ".minepos"
@@ -654,28 +650,35 @@ function stripmine(position, rotation, depth, length)
   local i = 1
   while not length or i <= length do
     saveMinePos(globalPosition, globalRotation)
-    mine()
-    rotateBy(2)
-    mine()
-    rotateBy(-1)
-    mine(depth)
-    rotateBy(-1)
-    mine(3)
-    rotateBy(-1)
-    mine(depth)
-    rotateBy(-1)
-    mine()
-    rotateBy(2)
-    mine(4)
+    local pos1 = globalPosition
+    mine(1, pos1, rotation)
+    mine(depth, pos1, rotationOffsetBy(rotation, 1))
+    local pos2 = globalPosition
+    mine(3, nil, rotation)
+    mine(depth, nil, rotationOffsetBy(rotation, -1))
+    mine(5, pos1:offsetBy(offset.rotation(rotation):times(3)), rotation)
     i = i + 1
   end
 end
 
 function main()
-  depth=tonumber(tArgs[1])
-  length=tonumber(tArgs[2])
+  local depth=tonumber(tArgs[1])
+  local length=tonumber(tArgs[2])
   
   if depth==nil then depth=30 end
+  
+  print("intelliMine by LolHens")
+  print("Stripmining "..depth.." block long tunnels")
+  
+  while not refuel() do
+    print("ERROR: out of fuel!")
+  end
+  
+  if not globalRotation then
+    globalPosition, globalRotation = locate()
+  end
+  
+  print("Position: "..globalPosition:string().." "..globalRotation)
   
   local position, rotation = loadMinePos()
   if not position then
@@ -683,10 +686,10 @@ function main()
     rotation = globalRotation
   end
   
-  printInfo()
-  while not refuel() do
-    print("ERROR: out of fuel!")
+  if position ~= globalPosition or rotation ~= globalRotation then
+    print("Resuming at "..position.string().." "..rotation)
   end
+  
   stripmine(position, rotation, depth, length)
 end
 
