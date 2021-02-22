@@ -555,9 +555,11 @@ end
 digStack = DigStack()
 
 dumpBlockSlot = 1
+chunkLoaderSlot = 2
+itemSlots = 3
 
 function shouldDump()
-  for slot = 1, 16 do
+  for slot = itemSlots, 16 do
     if turtle.getItemCount(slot) == 0 then return false end
   end
   return true
@@ -571,15 +573,38 @@ function dumpItems()
   turtleForce(turtleRaw.place, true).up()
   
   repeat
-    for i = 1, 16 do
-      if i ~= dumpBlockSlot then
-        turtle.select(i)
-        turtleRaw.drop.up()
-      end
+    for i = itemSlots, 16 do
+      turtle.select(i)
+      turtleRaw.drop.up()
     end
   until not shouldDump()
   
   turtle.select(dumpBlockSlot)
+  turtleRaw.dig.up()
+  turtle.select(selected)
+end
+
+function placeChunkLoader(position)
+  moveTo(position, true)
+  local selected = turtle.getSelectedSlot()
+  turtle.select(chunkLoaderSlot)
+  local chunkLoaderName = turtle.getItemDetail(chunkLoaderSlot, true).name
+  local inspect, chunkLoaderItem = turtleRaw.inspect.up()
+  if not (inspect and chunkLoaderItem.name == chunkLoaderName) then
+    turtleForce(turtleRaw.place, true).up()
+  end
+  turtle.select(selected)
+  return chunkLoaderName
+end
+
+function takeChunkLoader(chunkLoaderName, position)
+  moveTo(position, true)
+  local selected = turtle.getSelectedSlot()
+  turtle.select(chunkLoaderSlot)
+  local chunkLoaderItem = turtle.getItemDetail(chunkLoaderSlot, true)
+  if chunkLoaderItem and chunkLoaderItem.name ~= chunkLoaderName then
+    turtleRaw.drop.up()
+  end
   turtleRaw.dig.up()
   turtle.select(selected)
 end
@@ -645,12 +670,13 @@ function queueSurroundingOres(keepRotation, skipRotation)
   return result
 end
 
-function mine(count, position, rotation)
+function mine(count, position, rotation, startOffset)
   if not count then count = 0 end
   if not position then position = globalPosition end
   if not rotation then rotation = globalRotation end
   
   local offsetForward = offset.forward(rotation)
+  if startOffset then position = position:offsetBy(offsetForward:times(startOffset)) end
   for i = count, 0, -1 do
     local minePos = position:offsetBy(offsetForward:times(i))
     digStack:push(minePos:offsetBy(offset.up()))
@@ -658,9 +684,9 @@ function mine(count, position, rotation)
   end
   
   while not digStack:isEmpty() do
-    local nextPosition, nextRotation = digStack:popNearest(globalPosition, 10)
+    local nextPosition, nextRotation = digStack:popNearest(globalPosition, 5)
     if shouldDump() then dumpItems() end
-    turtle.select(2)
+    turtle.select(itemSlots)
     -- TODO: suck
     local off = position:offsetTo(nextPosition)
     local onPath = (off.y == 0 or off.y == 1) and ((off.x == 0 and off.z ~= 0) or (off.x ~= 0 and off.z == 0))
@@ -679,12 +705,13 @@ end
 
 local minePosFile = ".minepos"
 
-function saveMinePos(position, rotation)
+function saveMinePos(position, rotation, segment)
   local file = io.open(minePosFile, "w")
   file:write(position.x.."\n")
   file:write(position.y.."\n")
   file:write(position.z.."\n")
   file:write(rotation.."\n")
+  file:write(segment.."\n")
   file:flush()
   file:close()
 end
@@ -698,27 +725,40 @@ function loadMinePos()
   local y = tonumber(file:read("*l"))
   local z = tonumber(file:read("*l"))
   local r = tonumber(file:read("*l"))
+  local s = tonumber(file:read("*l"))
   file:close()
-  return Vec(x, y, z), r
+  return Vec(x, y, z), r, s
 end
 
-function stripmine(position, rotation, depth, length)
+function stripmine(position, rotation, segment, depth, length)
+  if not segment then segment = 1 end
+  
   moveTo(position, true)
   if rotation then rotateTo(rotation) end
   
   local i = 1
   while not length or i <= length do
-    saveMinePos(position, rotation)
-    mine(1, position, rotation)
-    position = mine(depth, position:offsetBy(offset.right(rotation)), rotationRight(rotation))
-    position = mine(2, position:offsetBy(offset.forward(rotation)), rotation)
-    position = mine(depth, position:offsetBy(offset.left(rotation)), rotationLeft(rotation))
-    mine(0, position:offsetBy(offset.forward(rotation)), rotation)
-    mine(0, position:offsetBy(offset.back(rotation)), rotationBack(rotation))
-    position = mine(depth, position:offsetBy(offset.left(rotation)), rotationLeft(rotation))
-    position = mine(2, position:offsetBy(offset.forward(rotation)), rotation)
-    position = mine(depth, position:offsetBy(offset.right(rotation)), rotationRight(rotation))
-    position = mine(1, position:offsetBy(offset.back(rotation)), rotation)
+    saveMinePos(position, rotation, segment)
+    
+    local left, right
+    if segment == 1 then
+      left = rotationLeft(rotation)
+      right = rotationRight(rotation)
+      segment = 2
+    elseif segment == 2 then
+      left = rotationRight(rotation)
+      right = rotationLeft(rotation)
+      segment = 1
+    end
+    
+    mine(0, position, rotation, 1)
+    local chunkLoaderName = placeChunkLoader(position:offsetBy(offset.forward(rotation):times(2)))
+    takeChunkLoader(chunkLoaderName, position:offsetBy(offset.back(rotation)))
+    mine(0, position, rotationBack(rotation), 1)
+    position = mine(depth, position, right, 1)
+    position = mine(2, position, rotation, 1)
+    position = mine(depth, position, left, 1)
+    
     i = i + 1
   end
 end
@@ -742,7 +782,7 @@ function main()
   
   print("Position: "..globalPosition:string().." "..globalRotation)
   
-  local position, rotation = loadMinePos()
+  local position, rotation, segment = loadMinePos()
   if not position then
     position = globalPosition
     rotation = globalRotation
@@ -752,7 +792,7 @@ function main()
     print("Resuming at "..position:string().." "..rotation)
   end
   
-  stripmine(position, rotation, depth, length)
+  stripmine(position, rotation, segment, depth, length)
 end
 
 main()
