@@ -24,6 +24,11 @@ turtleRaw = {
     up = turtle.placeUp,
     down = turtle.placeDown,
   },
+  drop = {
+    forward = turtle.drop,
+    up = turtle.dropUp,
+    down = turtle.dropDown,
+  },
   detect = {
     forward = turtle.detect,
     up = turtle.detectUp,
