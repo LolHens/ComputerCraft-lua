@@ -791,12 +791,14 @@ function main()
   print("intelliMine by LolHens")
   print("Stripmining "..depth.." block long tunnels")
   
-  while not refuel() do
-    print("ERROR: out of fuel!")
-  end
-  
-  if not globalRotation then
-    globalPosition, globalRotation = locate()
+  while not globalRotation do
+    if refuel(2) then
+      globalPosition, globalRotation = locate()
+      print("ERROR: location failed!")
+    else
+      print("ERROR: out of fuel!")
+    end
+    sleep(1)
   end
   
   print("Position: "..globalPosition:string().." "..globalRotation)
