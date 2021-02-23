@@ -554,7 +554,7 @@ end
 
 digStack = DigStack()
 
-dumpBlockSlot = 1
+enderChestSlot = 1
 chunkLoaderSlot = 2
 itemSlots = 3
 
@@ -565,23 +565,42 @@ function shouldDump()
   return true
 end
 
+function placeEnderChest()
+  if turtle.getItemDetail(enderChestSlot) then
+    local selected = turtle.getSelectedSlot()
+    turtle.select(enderChestSlot)
+    local result = turtleForce(turtleRaw.place, true).up()
+    turtle.select(selected)
+    return result
+  end
+  return false
+end
+
+function takeEnderChest()
+  if not turtle.getItemDetail(enderChestSlot) then
+    local selected = turtle.getSelectedSlot()
+    turtle.select(enderChestSlot)
+    local result = turtleRaw.dig.up()
+    turtle.select(selected)
+    return result
+  end
+  return false
+end
+
 function dumpItems()
   refuel()
-  
-  local selected = turtle.getSelectedSlot()
-  turtle.select(dumpBlockSlot)
-  turtleForce(turtleRaw.place, true).up()
-  
-  repeat
-    for i = itemSlots, 16 do
-      turtle.select(i)
-      turtleRaw.drop.up()
+  local enderChestPlaced = placeEnderChest()
+  while true do
+    if enderChestPlaced then
+      for i = itemSlots, 16 do
+        turtle.select(i)
+        turtleRaw.drop.up()
+      end
     end
-  until not shouldDump()
-  
-  turtle.select(dumpBlockSlot)
-  turtleRaw.dig.up()
-  turtle.select(selected)
+    if not shouldDump() then break end
+    sleep(1)
+  end
+  return takeEnderChest()
 end
 
 function placeChunkLoader(position)
@@ -791,6 +810,8 @@ function main()
   if position ~= globalPosition or rotation ~= globalRotation then
     print("Resuming at "..position:string().." "..rotation)
   end
+  
+  takeEnderChest()
   
   stripmine(position, rotation, segment, depth, length)
 end
