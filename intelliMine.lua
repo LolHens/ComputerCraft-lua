@@ -3,7 +3,7 @@
 
 tArgs = {...}
 
-turtleRaw = {
+action = {
   go = {
     forward = turtle.forward,
     up = turtle.up,
@@ -86,9 +86,9 @@ end
 
 function rotateBy(rotation)
   rotation = rotationOffsetBy(rotation, 0)
-  if rotation == 3 then return turtleRaw.turn.left() end
+  if rotation == 3 then return action.turn.left() end
   for i = 1, rotation do
-    if not turtleRaw.turn.right() then return false end
+    if not action.turn.right() then return false end
   end
   return true
 end
@@ -228,17 +228,17 @@ function refuel(refuelMin)
   return turtle.getFuelLevel() >= refuelMin
 end
 
-function turtleForce(action, dig, attack)
-  if dig == nil then dig = false end
+function forceAction(forcedAction, dig, attack)
+  if dig == nil then dig = true end
   if attack == nil then attack = true end
   
   local function force(direction, ...)
     if not refuel(1) then return false end
     
     local function tryRecover()
-      if turtleRaw.detect[direction]() then
-        if dig and turtleRaw.dig[direction]() then return true end
-      elseif attack and turtleRaw.attack[direction]() then
+      if action.detect[direction]() then
+        if dig and action.dig[direction]() then return true end
+      elseif attack and action.attack[direction]() then
         return true
       end
       
@@ -247,7 +247,7 @@ function turtleForce(action, dig, attack)
     
     local failed = false
     for i = 1, 1000 do
-      if action[direction](...) then return true end
+      if forcedAction[direction](...) then return true end
       
       if not tryRecover() then
         if failed then return false end
@@ -265,7 +265,7 @@ function turtleForce(action, dig, attack)
   local function forceBack(keepRotation, ...)
     if not refuel(1) then return false end
     
-    if action.back and action.back(...) then return true end
+    if forcedAction.back and forcedAction.back(...) then return true end
     
     rotateBy(2)
     local result = force("forward", ...)
@@ -274,59 +274,63 @@ function turtleForce(action, dig, attack)
     end
     return result
   end
- 
+  
   return {
-    forward = function() return force("forward") end,
-    up = function() return force("up") end,
-    down = function() return force("down") end,
-    back = function() return forceBack(true) end,
-    backAnyRotation = function() return forceBack(false) end,
+    forward = function(...) return force("forward", ...) end,
+    up = function(...) return force("up", ...) end,
+    down = function(...) return force("down", ...) end,
+    back = function(...) return forceBack(true, ...) end,
+    backAnyRotation = function(...) return forceBack(false, ...) end,
   }
 end
 
-function locate()
-  local position = Vec(gps.locate())
+locate = (function()
+  local actionDelegate = action
   
-  local function rotationByMove(go, rotationOffset)
-    if not rotationOffset then rotationOffset = 0 end
+  return function()
+    local position = Vec(gps.locate())
     
-    if not refuel(2) then return end
-    
-    local offsetPosition = position:copy()
-    
-    if go.forward() then
-      offsetPosition = Vec(gps.locate())
-      go.back()
-    elseif go.back() then
-      offsetPosition = Vec(gps.locate())
-      rotationOffset = rotationBack(rotationOffset)
-      go.forward()
+    local function rotationByMove(go, rotationOffset)
+      if not rotationOffset then rotationOffset = 0 end
+      
+      if not refuel(2) then return end
+      
+      local offsetPosition = position:copy()
+      
+      if go.forward() then
+        offsetPosition = Vec(gps.locate())
+        go.back()
+      elseif go.back() then
+        offsetPosition = Vec(gps.locate())
+        rotationOffset = rotationBack(rotationOffset)
+        go.forward()
+      end
+      
+      return rotationOffsetBy(position:offsetTo(offsetPosition):xzRotation(), rotationOffset)
     end
     
-    return rotationOffsetBy(position:offsetTo(offsetPosition):xzRotation(), rotationOffset)
-  end
-  
-  local rotation = rotationByMove(turtleRaw.go)
-  if not rotation then
-    rotateBy(1)
-    rotation = rotationByMove(turtleRaw.go, 3)
-    rotateBy(-1)
-  end
-  if not rotation then
-    local forceGo = turtleForce(turtleRaw.go, true)
-    
-    rotation = rotationByMove(forceGo)
+    local rotation = rotationByMove(actionDelegate.go)
     if not rotation then
       rotateBy(1)
-      rotation = rotationByMove(forceGo, 3)
+      rotation = rotationByMove(actionDelegate.go, 3)
       rotateBy(-1)
     end
+    if not rotation then
+      local forceGo = turtleForce(actionDelegate.go)
+      
+      rotation = rotationByMove(forceGo)
+      if not rotation then
+        rotateBy(1)
+        rotation = rotationByMove(forceGo, 3)
+        rotateBy(-1)
+      end
+    end
+    
+    return position, rotation
   end
-  
-  return position, rotation
-end
+end)()
 
-globalPosition, globalRotation = locate()
+globalPosition, globalRotation = nil, nil
 
 offset.forward = (function()
   local delegate = offset.forward
@@ -401,8 +405,8 @@ updateGlobalPositionAndRotation = {
   end,
 }
 
-turtleRaw = (function()
-  local delegate = turtleRaw
+action = (function()
+  local delegate = action
   
   function goTracked(direction)
     if delegate.go[direction]() then
@@ -469,10 +473,10 @@ function moveStepDirectionBy(go, vector)
 end
 
 function forceMoveStepBy(vector, dig, attack)
-  local forceGo = turtleForce(turtleRaw.go, false, attack)
+  local forceGo = forceAction(action.go, false, attack)
   if moveStepDirectionBy(forceGo, vector) then return true end
   if dig then
-    forceGo = turtleForce(turtleRaw.go, true, attack)
+    forceGo = forceAction(action.go, true, attack)
     if moveStepDirectionBy(forceGo, vector) then return true end
   end
   if vector:nextStep().y < 1 then
@@ -569,7 +573,7 @@ function placeEnderChest()
   if turtle.getItemDetail(enderChestSlot) then
     local selected = turtle.getSelectedSlot()
     turtle.select(enderChestSlot)
-    local result = turtleForce(turtleRaw.place, true).up()
+    local result = forceAction(action.place).up()
     turtle.select(selected)
     return result
   end
@@ -580,7 +584,7 @@ function takeEnderChest()
   if not turtle.getItemDetail(enderChestSlot) then
     local selected = turtle.getSelectedSlot()
     turtle.select(enderChestSlot)
-    local result = turtleRaw.dig.up()
+    local result = action.dig.up()
     turtle.select(selected)
     return result
   end
@@ -594,7 +598,7 @@ function dumpItems()
     if enderChestPlaced then
       for i = itemSlots, 16 do
         turtle.select(i)
-        turtleRaw.drop.up()
+        action.drop.up()
       end
     end
     if not shouldDump() then break end
@@ -608,9 +612,9 @@ function placeChunkLoader(position)
   local selected = turtle.getSelectedSlot()
   turtle.select(chunkLoaderSlot)
   local chunkLoaderName = turtle.getItemDetail(chunkLoaderSlot, true).name
-  local inspect, chunkLoaderItem = turtleRaw.inspect.up()
+  local inspect, chunkLoaderItem = action.inspect.up()
   if not (inspect and chunkLoaderItem.name == chunkLoaderName) then
-    turtleForce(turtleRaw.place, true).up()
+    forceAction(action.place).up()
   end
   turtle.select(selected)
   return chunkLoaderName
@@ -622,9 +626,9 @@ function takeChunkLoader(chunkLoaderName, position)
   turtle.select(chunkLoaderSlot)
   local chunkLoaderItem = turtle.getItemDetail(chunkLoaderSlot, true)
   if chunkLoaderItem and chunkLoaderItem.name ~= chunkLoaderName then
-    turtleRaw.drop.up()
+    action.drop.up()
   end
-  turtleRaw.dig.up()
+  action.dig.up()
   turtle.select(selected)
 end
 
@@ -656,7 +660,7 @@ local oreList = loadList("ores.txt", true)
 
 isOre = (function()
   local function isOre(direction)
-    local inspect, item = turtleRaw.inspect[direction]()
+    local inspect, item = action.inspect[direction]()
     return isItemIn(inspect and item, oreList)
   end
   
@@ -791,13 +795,16 @@ function main()
   print("intelliMine by LolHens")
   print("Stripmining "..depth.." block long tunnels")
   
-  while not globalRotation do
+  while true do
+    globalPosition, globalRotation = locate()
+    if globalRotation then break end
+    
     if refuel(2) then
-      globalPosition, globalRotation = locate()
-      print("ERROR: location failed!")
+      print("ERROR: gps localization failed!")
     else
       print("ERROR: out of fuel!")
     end
+    
     sleep(1)
   end
   
@@ -809,8 +816,8 @@ function main()
     rotation = globalRotation
   end
   
-  if position ~= globalPosition or rotation ~= globalRotation then
-    print("Resuming at "..position:string().." "..rotation)
+  if not position.isAt(globalPosition) or rotation ~= globalRotation then
+    print("Resuming: "..position:string().." "..rotation)
   end
   
   takeEnderChest()
