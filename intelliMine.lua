@@ -316,7 +316,7 @@ locate = (function()
       rotateBy(-1)
     end
     if not rotation then
-      local forceGo = turtleForce(actionDelegate.go)
+      local forceGo = forceAction(actionDelegate.go)
       
       rotation = rotationByMove(forceGo)
       if not rotation then
