@@ -611,9 +611,9 @@ function placeChunkLoader(position)
   moveTo(position, true)
   local selected = turtle.getSelectedSlot()
   turtle.select(chunkLoaderSlot)
-  local chunkLoaderName = turtle.getItemDetail(chunkLoaderSlot, true).name
+  local chunkLoaderName = (turtle.getItemDetail(chunkLoaderSlot, true) or {}).name
   local inspect, chunkLoaderItem = action.inspect.up()
-  if not (inspect and chunkLoaderItem.name == chunkLoaderName) then
+  if not (chunkLoaderName and inspect and chunkLoaderItem.name == chunkLoaderName) then
     forceAction(action.place).up()
   end
   turtle.select(selected)
@@ -625,7 +625,7 @@ function takeChunkLoader(chunkLoaderName, position)
   local selected = turtle.getSelectedSlot()
   turtle.select(chunkLoaderSlot)
   local chunkLoaderItem = turtle.getItemDetail(chunkLoaderSlot, true)
-  if chunkLoaderItem and chunkLoaderItem.name ~= chunkLoaderName then
+  if chunkLoaderName and chunkLoaderItem and chunkLoaderItem.name ~= chunkLoaderName then
     action.drop.up()
   end
   action.dig.up()
@@ -750,7 +750,7 @@ function loadMinePos()
   local r = tonumber(file:read("*l"))
   local s = tonumber(file:read("*l"))
   file:close()
-  return Vec(x, y, z), r, s
+  return x and y and z and Vec(x, y, z), r, s
 end
 
 function stripmine(position, rotation, segment, depth, length)
@@ -811,7 +811,7 @@ function main()
   print("Position: "..globalPosition:string().." "..globalRotation)
   
   local position, rotation, segment = loadMinePos()
-  if not position then
+  if not position or not rotation then
     position = globalPosition
     rotation = globalRotation
   end
