@@ -8,6 +8,7 @@
 - set up 4 gps towers with ender modems
 - put an ender chest into slot 1
 - put 2 chunk loaders into slot 2
+- put a bucket into slot 3
 - put some fuel into one of the other slots
 - start the program, terminate it and edit the generated `ores.txt` whitelist file
 - `edit startup` and paste in `shell.run("intelliMine")`
