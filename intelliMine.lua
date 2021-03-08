@@ -206,17 +206,25 @@ function isItemIn(item, list)
   return false
 end
 
-function refuel(refuelMin)
-  local limit = turtle.getFuelLimit()
-  local refuelMax = limit - 100
+--   80 coal
+-- 1000 lava
+refuelQuota = 1000
+
+function getRefuelThreshold(refuelMin)
+  local refuelMax = turtle.getFuelLimit() - refuelQuota
   local refuelThreshold = refuelMin
-  if not refuelThreshold then refuelThreshold = limit / 2 end
+  if not refuelThreshold then refuelThreshold = refuelMax / 2 end
+  return refuelThreshold, refuelMax
+end
+
+function refuel(refuelMin)
+  local refuelThreshold, refuelMax = getRefuelThreshold(refuelMin)
   if not refuelMin then refuelMin = 1 end
   
   if turtle.getFuelLevel() < refuelThreshold then
     local selected = turtle.getSelectedSlot()
     for i = 1, 16 do
-      if isItemIn(turtle.getItemDetail(i, true), {"minecraft:coals"}) then
+      if isItemIn(turtle.getItemDetail(i, true), {"minecraft:lava_bucket", "minecraft:coals", "minecraft:coal_block"}) then
         turtle.select(i)
         while turtle.getFuelLevel() < refuelMax and turtle.refuel(1) do end
         if turtle.getFuelLevel() >= refuelMax then break end
@@ -560,7 +568,8 @@ digStack = DigStack()
 
 enderChestSlot = 1
 chunkLoaderSlot = 2
-itemSlots = 3
+bucketSlot = 3
+itemSlots = 4
 
 function shouldDump()
   for slot = itemSlots, 16 do
@@ -612,8 +621,8 @@ function placeChunkLoader(position)
   local selected = turtle.getSelectedSlot()
   turtle.select(chunkLoaderSlot)
   local chunkLoaderName = (turtle.getItemDetail(chunkLoaderSlot, true) or {}).name
-  local inspect, chunkLoaderItem = action.inspect.up()
-  if not (chunkLoaderName and inspect and chunkLoaderItem.name == chunkLoaderName) then
+  local success, chunkLoaderItem = action.inspect.up()
+  if not (chunkLoaderName and success and chunkLoaderItem.name == chunkLoaderName) then
     forceAction(action.place).up()
   end
   turtle.select(selected)
@@ -660,8 +669,20 @@ local oreList = loadList("ores.txt", true)
 
 isOre = (function()
   local function isOre(direction)
-    local inspect, item = action.inspect[direction]()
-    return isItemIn(inspect and item, oreList)
+    local success, item = action.inspect[direction]()
+    -- lava source
+    if success and item.name == "minecraft:lava" and item.state.level == 0 then
+      local item = turtle.getItemDetail(bucketSlot, true)
+      if item and item.name == "minecraft:bucket" then
+        local selected = turtle.getSelectedSlot()
+        turtle.select(bucketSlot)
+        if item.count > 1 then action.drop.up(item.count - 1) end
+        action.place[direction]()
+        turtle.select(selected)
+        return false
+      end
+    end
+    return isItemIn(success and item, oreList)
   end
   
   return {
@@ -794,6 +815,8 @@ function main()
   
   print("intelliMine by LolHens")
   print("Stripmining "..depth.." block long tunnels")
+  
+  refuel()
   
   while true do
     globalPosition, globalRotation = locate()
