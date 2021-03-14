@@ -318,22 +318,21 @@ locate = (function()
     end
     
     local rotation = rotationByMove(actionDelegate.go)
-    if not rotation then
-      rotateBy(1)
-      rotation = rotationByMove(actionDelegate.go, 3)
-      rotateBy(-1)
-    end
-    if not rotation then
-      local forceGo = forceAction(actionDelegate.go)
-      
-      rotation = rotationByMove(forceGo)
-      if not rotation then
-        rotateBy(1)
-        rotation = rotationByMove(forceGo, 3)
-        rotateBy(-1)
-      end
-    end
+    if rotation then return position, rotation end
     
+    rotateBy(1)
+    rotation = rotationByMove(actionDelegate.go, 3)
+    rotateBy(-1)
+    if rotation then return position, rotation end
+    
+    local forceGo = forceAction(actionDelegate.go)
+    
+    rotation = rotationByMove(actionDelegate.go) or rotationByMove(forceGo)
+    if rotation then return position, rotation end
+    
+    rotateBy(1)
+    rotation = rotationByMove(actionDelegate.go, 3) or rotationByMove(forceGo, 3)
+    rotateBy(-1) 
     return position, rotation
   end
 end)()
